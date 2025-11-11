@@ -1,0 +1,8 @@
+# IGNORE DIRECTORY
+bin/
+
+# IGNORE FILE
+test.run
+cover.out
+.DS_Store
+*.log
