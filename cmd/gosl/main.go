@@ -130,7 +130,6 @@ func initializeApp(ctx context.Context) (*Application, error) {
 	program := tea.NewProgram(
 		appModel,
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
 	)
 
 	eventDispatcher := tui.NewEventDispatcher()
