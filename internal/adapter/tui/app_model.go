@@ -126,9 +126,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.autoNavigated = true
 			for _, ch := range evt.Channels {
 				if ch.Name == m.config.DefaultChannel {
-					m.messageView = NewMessageViewModel(ch.ID, m.width, m.height)
+					m.messageView = NewMessageViewModelWithSender(ch.ID, m.width, m.height, m.appService)
 					m.state = StateMessageView
-					return m, loadMessagesCmd(m.appService, ch.ID, 50, "")
+					initCmd := m.messageView.Init()
+					loadCmd := loadMessagesCmd(m.appService, ch.ID, 50, "")
+					return m, tea.Batch(initCmd, loadCmd)
 				}
 			}
 		}
@@ -206,9 +208,11 @@ func (m AppModel) updateChannelList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if keyMsg.Type == tea.KeyEnter && !m.channelList.searchMode {
 			selectedChannel := m.channelList.GetSelectedChannel()
 			if selectedChannel != nil {
-				m.messageView = NewMessageViewModel(selectedChannel.ID, m.width, m.height)
+				m.messageView = NewMessageViewModelWithSender(selectedChannel.ID, m.width, m.height, m.appService)
 				m.state = StateMessageView
-				return m, loadMessagesCmd(m.appService, selectedChannel.ID, 5, "")
+				initCmd := m.messageView.Init()
+				loadCmd := loadMessagesCmd(m.appService, selectedChannel.ID, 50, "")
+				return m, tea.Batch(initCmd, loadCmd)
 			}
 		}
 	}
@@ -220,30 +224,24 @@ func (m AppModel) updateChannelList(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m AppModel) updateMessageView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		if keyMsg.Type == tea.KeyEsc {
+		if keyMsg.Type == tea.KeyEsc && !m.messageView.inputFocused {
 			m.state = StateChannelList
 			return m, nil
 		}
-		if keyMsg.Type == tea.KeyEnter {
+		if keyMsg.Type == tea.KeyEnter && !m.messageView.inputFocused {
 			if m.messageView.selectedIndex < len(m.messageView.messages) {
 				selectedMsg := m.messageView.messages[m.messageView.selectedIndex]
-				if selectedMsg.ReplyCount > 0 || selectedMsg.ThreadTS != "" {
-					threadTS := selectedMsg.ThreadTS
-					if threadTS == "" {
-						threadTS = selectedMsg.ID
-					}
-					m.threadView = NewThreadViewModelWithSender(m.messageView.channelID, threadTS, m.width, m.height, m.appService)
-					m.state = StateThreadView
-					initCmd := m.threadView.Init()
-					loadCmd := loadThreadCmd(m.appService, m.messageView.channelID, threadTS)
-					return m, tea.Batch(initCmd, loadCmd)
+				// Use message ID as thread timestamp if no existing thread
+				threadTS := selectedMsg.ThreadTS
+				if threadTS == "" {
+					threadTS = selectedMsg.ID
 				}
+				m.threadView = NewThreadViewModelWithSender(m.messageView.channelID, threadTS, m.width, m.height, m.appService)
+				m.state = StateThreadView
+				initCmd := m.threadView.Init()
+				loadCmd := loadThreadCmd(m.appService, m.messageView.channelID, threadTS)
+				return m, tea.Batch(initCmd, loadCmd)
 			}
-			return m, nil
-		}
-		if keyMsg.String() == "i" || keyMsg.String() == "c" {
-			m.messageInput = NewMessageInputModelWithSender(InputModeChannelMessage, m.messageView.channelID, "", m.width, m.height, m.appService)
-			m.state = StateMessageInput
 			return m, nil
 		}
 	}
@@ -257,7 +255,13 @@ func (m AppModel) updateThreadView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		if keyMsg.Type == tea.KeyEsc && !m.threadView.inputFocused {
 			m.state = StateMessageView
-			return m, nil
+			// Force re-render by sending window size message to message view
+			return m, func() tea.Msg {
+				return tea.WindowSizeMsg{
+					Width:  m.width,
+					Height: m.height,
+				}
+			}
 		}
 	}
 

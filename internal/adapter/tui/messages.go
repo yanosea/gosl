@@ -57,3 +57,5 @@ type ThreadLoadedMsg struct {
 }
 
 type ThreadRefreshTickMsg struct{}
+
+type MessageRefreshTickMsg struct{}

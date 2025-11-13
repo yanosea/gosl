@@ -25,6 +25,8 @@ type ThreadViewModel struct {
 	threadTS         string
 	width            int
 	height           int
+	viewportHeight   int
+	scrollOffset     int
 	inputArea        textarea.Model
 	inputFocused     bool
 	sender           MessageSender
@@ -57,17 +59,19 @@ func NewThreadViewModelWithSender(channelID, threadTS string, width, height int,
 	ta.Blur() // Start with viewport focused
 
 	return ThreadViewModel{
-		viewport:      vp,
-		parentMessage: message.Message{},
-		replies:       []message.Message{},
-		selectedIndex: 0,
-		channelID:     channelID,
-		threadTS:      threadTS,
-		width:         width,
-		height:        height,
-		inputArea:     ta,
-		inputFocused:  false,
-		sender:        sender,
+		viewport:       vp,
+		parentMessage:  message.Message{},
+		replies:        []message.Message{},
+		selectedIndex:  0,
+		channelID:      channelID,
+		threadTS:       threadTS,
+		width:          width,
+		height:         height,
+		viewportHeight: viewportHeight,
+		scrollOffset:   0,
+		inputArea:      ta,
+		inputFocused:   false,
+		sender:         sender,
 	}
 }
 
@@ -149,10 +153,7 @@ func (m ThreadViewModel) Update(msg tea.Msg) (ThreadViewModel, tea.Cmd) {
 			return m, nil
 
 		case "g":
-			// Vim-style: gg to go to top (handle in next key press)
-			// Wait for another 'g' key press
-			// For simplicity, use 'g' twice or implement state tracking
-			// Current implementation: single 'g' goes to top
+			// Vim-style: gg to go to top
 			m.selectedIndex = 0
 			m.selectedMessageID = m.parentMessage.ID
 			m.viewport.SetContent(m.renderThread())
@@ -193,6 +194,7 @@ func (m ThreadViewModel) Update(msg tea.Msg) (ThreadViewModel, tea.Cmd) {
 		if viewportHeight < 5 {
 			viewportHeight = 5
 		}
+		m.viewportHeight = viewportHeight
 
 		m.viewport.Width = msg.Width
 		m.viewport.Height = viewportHeight
@@ -204,10 +206,29 @@ func (m ThreadViewModel) Update(msg tea.Msg) (ThreadViewModel, tea.Cmd) {
 	case NewMessageMsg:
 		// Add new reply to the thread if it belongs to this thread
 		if msg.ChannelID == m.channelID && msg.Message.ThreadTS == m.threadTS {
+			// Check if cursor was at the latest message before adding new reply
+			wasAtLatest := false
+			if len(m.replies) > 0 {
+				wasAtLatest = m.selectedIndex == len(m.replies)
+			} else {
+				wasAtLatest = m.selectedIndex == 0
+			}
+
 			m.AddReply(msg.Message)
+
+			// If cursor was at latest, move cursor to new latest reply and scroll
+			if wasAtLatest {
+				m.selectedIndex = len(m.replies)
+				m.selectedMessageID = m.replies[len(m.replies)-1].ID
+			}
+
 			m.viewport.SetContent(m.renderThread())
-			m.viewport.GotoBottom()
-			// Return immediately - viewport content has been updated
+
+			// Scroll to bottom if was at latest
+			if wasAtLatest {
+				m.viewport.GotoBottom()
+			}
+
 			return m, nil
 		}
 		// If message doesn't match, fall through to default handling
@@ -239,7 +260,7 @@ func (m ThreadViewModel) Update(msg tea.Msg) (ThreadViewModel, tea.Cmd) {
 		// If message doesn't match, fall through to default handling
 	}
 
-	// Update viewport or input based on focus
+	// Update input area or viewport based on focus
 	if m.inputFocused {
 		m.inputArea, cmd = m.inputArea.Update(msg)
 		cmds = append(cmds, cmd)
@@ -263,9 +284,17 @@ func (m ThreadViewModel) View() string {
 	sb.WriteString(headerStyle.Render(fmt.Sprintf("🧵 Thread in #%s", m.channelID)))
 	sb.WriteString("\n\n")
 
-	// Viewport content
-	sb.WriteString(m.viewport.View())
-	sb.WriteString("\n")
+	// Render content directly without viewport
+	allLines := m.getAllThreadLines()
+	visibleLines := m.getVisibleLines(allLines)
+
+	// Ensure we always render exactly viewportHeight lines
+	for i := 0; i < m.viewportHeight; i++ {
+		if i < len(visibleLines) {
+			sb.WriteString(visibleLines[i])
+		}
+		sb.WriteString("\n")
+	}
 
 	// Input area separator
 	separatorStyle := lipgloss.NewStyle().
@@ -305,9 +334,18 @@ func (m ThreadViewModel) View() string {
 
 // SetThread sets the parent message and replies for the thread view.
 func (m *ThreadViewModel) SetThread(parent message.Message, replies []message.Message) {
-	prevYOffset := m.viewport.YOffset
 	prevSelectedMsgID := m.selectedMessageID
 	isFirstLoad := m.selectedMessageID == ""
+	wasAtLatest := false
+
+	// Check if cursor was at the latest message before update
+	if !isFirstLoad {
+		if len(m.replies) > 0 {
+			wasAtLatest = m.selectedIndex == len(m.replies)
+		} else {
+			wasAtLatest = m.selectedIndex == 0
+		}
+	}
 
 	m.parentMessage = parent
 	m.replies = replies
@@ -321,21 +359,8 @@ func (m *ThreadViewModel) SetThread(parent message.Message, replies []message.Me
 			m.selectedMessageID = parent.ID
 		}
 	} else {
-		found := false
-		if prevSelectedMsgID == m.parentMessage.ID {
-			m.selectedIndex = 0
-			found = true
-		} else {
-			for i, reply := range m.replies {
-				if reply.ID == prevSelectedMsgID {
-					m.selectedIndex = i + 1
-					found = true
-					break
-				}
-			}
-		}
-
-		if !found {
+		// If was at latest, always move cursor to new latest message
+		if wasAtLatest {
 			if len(m.replies) > 0 {
 				m.selectedIndex = len(m.replies)
 				m.selectedMessageID = m.replies[len(m.replies)-1].ID
@@ -343,15 +368,27 @@ func (m *ThreadViewModel) SetThread(parent message.Message, replies []message.Me
 				m.selectedIndex = 0
 				m.selectedMessageID = parent.ID
 			}
+		} else {
+			// Try to find the previously selected message
+			if prevSelectedMsgID == m.parentMessage.ID {
+				m.selectedIndex = 0
+			} else {
+				for i, reply := range m.replies {
+					if reply.ID == prevSelectedMsgID {
+						m.selectedIndex = i + 1
+						break
+					}
+				}
+			}
+			// If not found, keep the current selectedIndex (cursor stays in place)
 		}
 	}
 
 	m.viewport.SetContent(m.renderThread())
 
-	if isFirstLoad {
+	// Scroll to bottom if first load OR was at latest
+	if isFirstLoad || wasAtLatest {
 		m.viewport.GotoBottom()
-	} else {
-		m.viewport.SetYOffset(prevYOffset)
 	}
 }
 
@@ -360,29 +397,7 @@ func (m *ThreadViewModel) AddReply(reply message.Message) {
 	m.replies = append(m.replies, reply)
 }
 
-// renderThread renders the parent message and all replies with indentation.
-func (m *ThreadViewModel) renderThread() string {
-	var sb strings.Builder
-
-	// Render parent message (no indentation)
-	m.renderThreadMessage(&sb, m.parentMessage, 0, 0)
-	sb.WriteString("\n")
-
-	// Render replies in chronological order (oldest to newest)
-	for i, reply := range m.replies {
-		m.renderThreadMessage(&sb, reply, 2, i+1)
-		sb.WriteString("\n")
-	}
-
-	if len(m.replies) == 0 {
-		sb.WriteString(lipgloss.NewStyle().Faint(true).Render("  No replies yet"))
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
-}
-
-// renderThreadMessage renders a single message in the thread with optional indentation.
+// renderThreadMessage renders a single message to the StringBuilder.
 // indent specifies the number of spaces to indent (0 for parent, 2+ for replies).
 // index is the position in the thread (0 for parent, 1+ for replies).
 func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.Message, indent int, index int) {
@@ -433,15 +448,14 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
 	sb.WriteString("\n")
 
 	// Message text (with indentation)
-	// Apply highlighting (reuse from MessageViewModel)
 	highlightedText := m.highlightText(msg.Text)
 
 	// Calculate base indentation for message text
 	baseIndent := "  " + strings.Repeat(" ", indent) + "   "
 
 	// Handle multi-line messages by adding proper indentation to each line
-	lines := strings.Split(highlightedText, "\n")
-	for i, line := range lines {
+	textLines := strings.Split(highlightedText, "\n")
+	for i, line := range textLines {
 		if i > 0 {
 			sb.WriteString("\n")
 		}
@@ -450,6 +464,80 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
 	}
 
 	sb.WriteString("\n")
+}
+
+// renderThreadMessageLines renders a single message and returns it as a slice of lines.
+// indent specifies the number of spaces to indent (0 for parent, 2+ for replies).
+// index is the position in the thread (0 for parent, 1+ for replies).
+func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent int, index int) []string {
+	var lines []string
+	// User name style
+	userStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("2"))
+
+	// Timestamp style
+	timestampStyle := lipgloss.NewStyle().
+		Faint(true).
+		Foreground(lipgloss.Color("8"))
+
+	// Thread parent indicator style
+	parentStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("5"))
+
+	// Reply indicator style
+	replyStyle := lipgloss.NewStyle().
+		Faint(true).
+		Foreground(lipgloss.Color("6"))
+
+	// Build header line with explicit width
+	var headerLine strings.Builder
+
+	// Selection indicator
+	isSelected := m.selectedIndex == index
+	if isSelected {
+		headerLine.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render("> "))
+	} else {
+		headerLine.WriteString("  ")
+	}
+
+	// Indentation
+	for i := 0; i < indent; i++ {
+		headerLine.WriteString(" ")
+	}
+
+	// Thread indicator
+	if index == 0 {
+		headerLine.WriteString(parentStyle.Render("┌─ "))
+	} else {
+		headerLine.WriteString(replyStyle.Render("└─ "))
+	}
+
+	// User name and timestamp
+	headerLine.WriteString(userStyle.Render(msg.UserName))
+	headerLine.WriteString(" ")
+	headerLine.WriteString(timestampStyle.Render(msg.Timestamp.Format("2006-01-02 15:04:05")))
+
+	lines = append(lines, headerLine.String())
+
+	// Message text (with indentation)
+	// Apply highlighting (reuse from MessageViewModel)
+	highlightedText := m.highlightText(msg.Text)
+
+	// Calculate base indentation for message text
+	baseIndent := "  " + strings.Repeat(" ", indent) + "   "
+
+	// Handle multi-line messages by adding proper indentation to each line
+	textLines := strings.Split(highlightedText, "\n")
+	for _, line := range textLines {
+		lines = append(lines, baseIndent+line)
+	}
+
+	// Add blank line after message
+	lines = append(lines, "")
+
+	return lines
 }
 
 // highlightText applies syntax highlighting to message text.
@@ -504,51 +592,114 @@ func (m *ThreadViewModel) highlightMentions(text string) string {
 	return text
 }
 
+// renderThread renders all thread messages as a single string for the viewport.
+func (m *ThreadViewModel) renderThread() string {
+	var sb strings.Builder
+
+	// Render parent message
+	m.renderThreadMessage(&sb, m.parentMessage, 0, 0)
+	sb.WriteString("\n")
+
+	// Render replies
+	for i, reply := range m.replies {
+		m.renderThreadMessage(&sb, reply, 2, i+1)
+		sb.WriteString("\n")
+	}
+
+	if len(m.replies) == 0 {
+		sb.WriteString(lipgloss.NewStyle().Faint(true).Render("  No replies yet"))
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// getAllThreadLines returns all rendered lines for the thread.
+func (m *ThreadViewModel) getAllThreadLines() []string {
+	var lines []string
+
+	// Render parent message
+	lines = append(lines, m.renderThreadMessageLines(m.parentMessage, 0, 0)...)
+
+	// Render replies
+	for i, reply := range m.replies {
+		lines = append(lines, m.renderThreadMessageLines(reply, 2, i+1)...)
+	}
+
+	if len(m.replies) == 0 {
+		lines = append(lines, lipgloss.NewStyle().Faint(true).Render("  No replies yet"))
+	}
+
+	return lines
+}
+
 // scrollToSelected scrolls the viewport to ensure the selected message is visible.
 func (m *ThreadViewModel) scrollToSelected() {
-	// Calculate the actual line position of the selected message
-	// by counting lines in the rendered output
 	selectedLineStart := 0
 
 	var sb strings.Builder
 
-	// Render parent message (index 0)
-	m.renderThreadMessage(&sb, m.parentMessage, 0, 0)
-	sb.WriteString("\n")
-	parentRendered := sb.String()
-	parentLines := strings.Count(parentRendered, "\n")
-
-	if m.selectedIndex == 0 {
-		// Parent is selected, it's at the top
-		selectedLineStart = 0
-	} else {
-		// Start after parent
-		selectedLineStart = parentLines
-
-		// Count lines for replies before the selected one
-		for i := 0; i < m.selectedIndex-1 && i < len(m.replies); i++ {
-			var replySB strings.Builder
-			m.renderThreadMessage(&replySB, m.replies[i], 2, i+1)
-			replySB.WriteString("\n")
-			replyLines := strings.Count(replySB.String(), "\n")
-			selectedLineStart += replyLines
-		}
+	// Count lines for parent message (index 0)
+	if m.selectedIndex > 0 {
+		m.renderThreadMessage(&sb, m.parentMessage, 0, 0)
+		sb.WriteString("\n")
+		selectedLineStart += strings.Count(sb.String(), "\n")
+		sb.Reset()
 	}
 
-	// Get viewport dimensions
-	viewportHeight := m.viewport.Height
+	// Count lines for replies before selected
+	for i := 0; i < m.selectedIndex-1 && i < len(m.replies); i++ {
+		m.renderThreadMessage(&sb, m.replies[i], 2, i+1)
+		sb.WriteString("\n")
+		selectedLineStart += strings.Count(sb.String(), "\n")
+		sb.Reset()
+	}
 
-	// Calculate desired offset to show the selected message
-	// We want the start of the selected message to be visible
+	viewportHeight := m.viewport.Height
 	desiredOffset := selectedLineStart - (viewportHeight / 3)
 
-	// Ensure we don't scroll past the beginning
 	if desiredOffset < 0 {
 		desiredOffset = 0
 	}
 
-	// Update the viewport offset
 	m.viewport.SetYOffset(desiredOffset)
+}
+
+// getVisibleLines returns the subset of lines that should be visible based on scroll offset.
+func (m *ThreadViewModel) getVisibleLines(allLines []string) []string {
+	// Calculate scroll offset to center selected message
+	selectedLineStart := 0
+	parentLines := m.renderThreadMessageLines(m.parentMessage, 0, 0)
+
+	if m.selectedIndex == 0 {
+		selectedLineStart = 0
+	} else {
+		selectedLineStart = len(parentLines)
+		for i := 0; i < m.selectedIndex-1 && i < len(m.replies); i++ {
+			replyLines := m.renderThreadMessageLines(m.replies[i], 2, i+1)
+			selectedLineStart += len(replyLines)
+		}
+	}
+
+	// Center the selected message
+	offset := selectedLineStart - (m.viewportHeight / 3)
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(allLines)-m.viewportHeight {
+		offset = len(allLines) - m.viewportHeight
+		if offset < 0 {
+			offset = 0
+		}
+	}
+
+	// Extract visible range
+	endIdx := offset + m.viewportHeight
+	if endIdx > len(allLines) {
+		endIdx = len(allLines)
+	}
+
+	return allLines[offset:endIdx]
 }
 
 // sendThreadReply sends a reply to the thread.

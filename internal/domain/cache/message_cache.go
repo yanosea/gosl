@@ -73,6 +73,15 @@ func (c *MessageCache) StoreMessages(channelID string, msgs []message.Message, c
 	}
 }
 
+func (c *MessageCache) InvalidateMessages(channelID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.messages, channelID)
+	delete(c.cursors, channelID)
+	c.lru.Remove(channelID)
+}
+
 func (c *MessageCache) SetCurrentChannel(channelID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

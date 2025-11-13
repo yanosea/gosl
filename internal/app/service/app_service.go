@@ -50,6 +50,12 @@ func (s *AppService) GetMessages(ctx context.Context, channelID string, limit in
 	return messages, nextCursor, nil
 }
 
+func (s *AppService) InvalidateMessageCache(channelID string) {
+	if s.cache != nil {
+		s.cache.InvalidateMessages(channelID)
+	}
+}
+
 func (s *AppService) GetThreadReplies(ctx context.Context, channelID, threadTS string) (message.Message, []message.Message, error) {
 	return s.slackRepo.GetThreadReplies(ctx, channelID, threadTS)
 }
@@ -60,7 +66,13 @@ func (s *AppService) SendMessage(ctx context.Context, channelID, text string) er
 		return err
 	}
 
-	return s.slackRepo.PostMessage(ctx, channelID, text)
+	if err := s.slackRepo.PostMessage(ctx, channelID, text); err != nil {
+		return err
+	}
+
+	// Invalidate cache after sending message
+	s.InvalidateMessageCache(channelID)
+	return nil
 }
 
 func (s *AppService) SendThreadReply(ctx context.Context, channelID, threadTS, text string) error {

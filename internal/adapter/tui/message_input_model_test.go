@@ -51,6 +51,11 @@ func (m *MockMessageSender) GetThreadReplies(ctx context.Context, channelID, thr
 	return message.Message{}, nil, nil
 }
 
+func (m *MockMessageSender) GetMessages(ctx context.Context, channelID string, limit int, cursor string) (messages []message.Message, nextCursor string, err error) {
+	// Mock implementation - not used in message input tests
+	return nil, "", nil
+}
+
 // TestMessageInputModel_Init tests the initialization of MessageInputModel
 func TestMessageInputModel_Init(t *testing.T) {
 	tests := []struct {

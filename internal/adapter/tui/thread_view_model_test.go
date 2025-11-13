@@ -321,9 +321,9 @@ func TestThreadViewModel_RenderThread(t *testing.T) {
 
 	model.SetThread(parent, replies)
 
-	rendered := model.renderThread()
+	allLines := model.getAllThreadLines()
 
-	if rendered == "" {
+	if len(allLines) == 0 {
 		t.Error("expected non-empty rendered content")
 	}
 
@@ -406,9 +406,9 @@ func TestThreadViewModel_EmptyThread(t *testing.T) {
 
 	model.SetThread(parent, []message.Message{})
 
-	rendered := model.renderThread()
+	allLines := model.getAllThreadLines()
 
-	if rendered == "" {
+	if len(allLines) == 0 {
 		t.Error("expected non-empty rendered content even with no replies")
 	}
 

@@ -20,6 +20,7 @@ type MessageSender interface {
 	SendThreadReply(ctx context.Context, channelID, threadTS, text string) error
 	GetChannelMembers(ctx context.Context, channelID string) ([]user.User, error)
 	GetThreadReplies(ctx context.Context, channelID, threadTS string) (parent message.Message, replies []message.Message, err error)
+	GetMessages(ctx context.Context, channelID string, limit int, cursor string) (messages []message.Message, nextCursor string, err error)
 }
 
 // InputMode represents the mode of message input.

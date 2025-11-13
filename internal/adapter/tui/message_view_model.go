@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -28,11 +31,34 @@ type MessageViewModel struct {
 	renderCache      *RenderCache
 	stringBuilders   *StringBuilderPool
 	isInitialized    bool
+	inputArea        textarea.Model
+	inputFocused     bool
+	sender           MessageSender
 }
 
 func NewMessageViewModel(channelID string, width, height int) MessageViewModel {
-	vp := viewport.New(width, height-viewportHeightReserved)
+	return NewMessageViewModelWithSender(channelID, width, height, nil)
+}
+
+func NewMessageViewModelWithSender(channelID string, width, height int, sender MessageSender) MessageViewModel {
+	// Calculate heights: header(2) + input area(5) + footer(2) = 9 lines reserved
+	inputHeight := 3
+	reservedHeight := 9
+	viewportHeight := height - reservedHeight
+	if viewportHeight < 5 {
+		viewportHeight = 5
+	}
+
+	vp := viewport.New(width, viewportHeight)
 	vp.YPosition = 0
+
+	// Create input textarea
+	ta := textarea.New()
+	ta.Placeholder = "Type your message... (Ctrl+Enter to send, Esc to exit input)"
+	ta.SetWidth(width - 4)
+	ta.SetHeight(inputHeight)
+	ta.ShowLineNumbers = false
+	ta.Blur() // Start with viewport focused
 
 	return MessageViewModel{
 		viewport:       vp,
@@ -44,32 +70,61 @@ func NewMessageViewModel(channelID string, width, height int) MessageViewModel {
 		height:         height,
 		renderCache:    NewRenderCache(),
 		stringBuilders: NewStringBuilderPool(),
+		inputArea:      ta,
+		inputFocused:   false,
+		sender:         sender,
 	}
 }
 
 func (m MessageViewModel) Init() tea.Cmd {
-	return nil
+	return tea.Batch(textarea.Blink, m.startRefreshTimer())
+}
+
+// startRefreshTimer returns a command that triggers a periodic refresh.
+func (m MessageViewModel) startRefreshTimer() tea.Cmd {
+	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+		return MessageRefreshTickMsg{}
+	})
 }
 
 func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) {
 	var cmd tea.Cmd
+	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// If input is focused, handle input-specific keys
+		if m.inputFocused {
+			switch msg.String() {
+			case "esc":
+				// Exit input mode, return focus to viewport
+				m.inputFocused = false
+				m.inputArea.Blur()
+				return m, nil
+
+			case "ctrl+enter", "alt+enter", "ctrl+j":
+				// Send message
+				return m, m.sendMessage()
+			}
+
+			// Update input area for other keys
+			m.inputArea, cmd = m.inputArea.Update(msg)
+			return m, cmd
+		}
+
+		// Viewport is focused - handle viewport navigation keys
 		switch msg.String() {
 		case "esc":
+			// Return to channel list (handled by AppModel)
 			return m, nil
 
 		case "i", "c":
-			return m, nil
+			// Enter input mode - focus the input area
+			m.inputFocused = true
+			return m, m.inputArea.Focus()
 
 		case "enter":
-			if m.selectedIndex < len(m.messages) {
-				selectedMsg := m.messages[m.selectedIndex]
-				if selectedMsg.ReplyCount > 0 {
-					return m, nil
-				}
-			}
+			// Open thread view (handled by AppModel)
 			return m, nil
 
 		case "up", "k":
@@ -113,43 +168,106 @@ func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) {
 			return m, nil
 
 		case "pgup", "ctrl+u":
+			// Scroll up in viewport
+			m.viewport.ViewUp()
 			return m, nil
 
 		case "pgdown", "ctrl+d":
+			// Scroll down in viewport
 			m.viewport.ViewDown()
-			return m, nil
-
-		case "ctrl+r":
 			return m, nil
 		}
 
 	case tea.WindowSizeMsg:
-		prevYOffset := m.viewport.YOffset
 		m.width = msg.Width
 		m.height = msg.Height
+
+		// Recalculate layout
+		inputHeight := 3
+		reservedHeight := 9
+		viewportHeight := msg.Height - reservedHeight
+		if viewportHeight < 5 {
+			viewportHeight = 5
+		}
+
 		m.viewport.Width = msg.Width
-		m.viewport.Height = msg.Height - viewportHeightReserved
+		m.viewport.Height = viewportHeight
+		m.inputArea.SetWidth(msg.Width - 4)
+		m.inputArea.SetHeight(inputHeight)
 		m.viewport.SetContent(m.renderMessages())
-		m.viewport.SetYOffset(prevYOffset)
 		return m, nil
 
 	case NewMessageMsg:
+		// Add new message if it belongs to this channel
 		if msg.ChannelID == m.channelID {
-			currentYOffset := m.viewport.YOffset
+			// Check if cursor was at the latest message before adding new message
+			wasAtLatest := false
+			if len(m.messages) > 0 {
+				wasAtLatest = m.selectedIndex == len(m.messages)-1
+			}
+
 			m.AddNewMessage(msg.Message)
+
+			// If cursor was at latest, move cursor to new latest message and scroll
+			if wasAtLatest {
+				m.selectedIndex = len(m.messages) - 1
+				m.selectedMessageID = m.messages[m.selectedIndex].ID
+			}
+
 			m.viewport.SetContent(m.renderMessages())
-			m.viewport.SetYOffset(currentYOffset)
+
+			// Scroll to bottom if was at latest
+			if wasAtLatest {
+				m.viewport.GotoBottom()
+			}
+
+			return m, nil
+		}
+		// If message doesn't match, fall through to default handling
+
+	case MessageSentMsg:
+		if msg.Success {
+			// Clear input area on successful send
+			m.inputArea.Reset()
+			// Keep input mode active for continuous messaging
+			// inputFocused remains true, textarea stays focused
+			// Immediately refresh messages to show the new message
+			return m, m.refreshMessages()
 		}
 		return m, nil
+
+	case MessageRefreshTickMsg:
+		// Refresh messages and restart timer
+		return m, tea.Batch(
+			m.refreshMessages(),
+			m.startRefreshTimer(),
+		)
+
+	case MessagesLoadedMsg:
+		// Update messages when loaded (from refresh or after sending)
+		if msg.ChannelID == m.channelID {
+			m.SetMessages(msg.Messages, msg.NextCursor)
+			return m, nil
+		}
+		// If message doesn't match, fall through to default handling
 	}
 
-	m.viewport, cmd = m.viewport.Update(msg)
-	return m, cmd
+	// Update viewport or input based on focus
+	if m.inputFocused {
+		m.inputArea, cmd = m.inputArea.Update(msg)
+		cmds = append(cmds, cmd)
+	} else {
+		m.viewport, cmd = m.viewport.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m MessageViewModel) View() string {
 	var sb strings.Builder
 
+	// Header: Channel indicator
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("2")).
@@ -157,21 +275,55 @@ func (m MessageViewModel) View() string {
 	sb.WriteString(headerStyle.Render(fmt.Sprintf("# %s", m.channelID)))
 	sb.WriteString("\n\n")
 
+	// Viewport content
 	sb.WriteString(m.viewport.View())
+	sb.WriteString("\n")
 
+	// Input area separator
+	separatorStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8"))
+	separator := strings.Repeat("─", m.width)
+	sb.WriteString(separatorStyle.Render(separator))
+	sb.WriteString("\n")
+
+	// Input area
+	inputBoxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("6")).
+		Padding(0, 1)
+
+	if m.inputFocused {
+		inputBoxStyle = inputBoxStyle.BorderForeground(lipgloss.Color("2"))
+	}
+
+	sb.WriteString(inputBoxStyle.Render(m.inputArea.View()))
+	sb.WriteString("\n")
+
+	// Footer: Help text
 	footerStyle := lipgloss.NewStyle().
 		Faint(true).
-		Padding(1, 1)
-	footer := "↑/k: Up | ↓/j: Down | g: Top | G: Bottom | Ctrl+U/D: Page | Enter: Thread | i/c: Reply | Esc: Back | q: Quit"
-	sb.WriteString("\n")
+		Padding(0, 1)
+
+	var footer string
+	if m.inputFocused {
+		footer = "Ctrl+Enter: Send | Esc: Exit input | q: Quit"
+	} else {
+		footer = "↑/k: Up | ↓/j: Down | g: Top | G: Bottom | Ctrl+U/D: Page | Enter: Thread | i/c: Input | Esc: Back | q: Quit"
+	}
 	sb.WriteString(footerStyle.Render(footer))
 
 	return sb.String()
 }
 
 func (m *MessageViewModel) SetMessages(messages []message.Message, cursor string) {
-	isFirstLoad := !m.isInitialized
-	currentYOffset := m.viewport.YOffset
+	prevSelectedMsgID := m.selectedMessageID
+	isFirstLoad := m.selectedMessageID == ""
+	wasAtLatest := false
+
+	// Check if cursor was at the latest message before update
+	if !isFirstLoad && len(m.messages) > 0 {
+		wasAtLatest = m.selectedIndex == len(m.messages)-1
+	}
 
 	m.messages = messages
 	m.nextCursor = cursor
@@ -185,16 +337,8 @@ func (m *MessageViewModel) SetMessages(messages []message.Message, cursor string
 			m.selectedMessageID = ""
 		}
 	} else {
-		found := false
-		for i, msg := range m.messages {
-			if msg.ID == m.selectedMessageID {
-				m.selectedIndex = i
-				found = true
-				break
-			}
-		}
-
-		if !found {
+		// If was at latest, always move cursor to new latest message
+		if wasAtLatest {
 			if len(m.messages) > 0 {
 				m.selectedIndex = len(m.messages) - 1
 				m.selectedMessageID = m.messages[m.selectedIndex].ID
@@ -202,18 +346,25 @@ func (m *MessageViewModel) SetMessages(messages []message.Message, cursor string
 				m.selectedIndex = 0
 				m.selectedMessageID = ""
 			}
+		} else {
+			// Try to find the previously selected message
+			for i, msg := range m.messages {
+				if msg.ID == prevSelectedMsgID {
+					m.selectedIndex = i
+					break
+				}
+			}
+			// If not found, keep the current selectedIndex (cursor stays in place)
 		}
 	}
 
 	m.renderCache.InvalidateAll()
 	m.viewport.SetContent(m.renderMessages())
 
-	if isFirstLoad {
+	// Scroll to bottom if first load OR was at latest
+	if isFirstLoad || wasAtLatest {
 		m.viewport.GotoBottom()
-	} else {
-		m.viewport.SetYOffset(currentYOffset)
 	}
-	m.isInitialized = true
 }
 
 func (m *MessageViewModel) AppendMessages(messages []message.Message, cursor string) {
@@ -462,4 +613,69 @@ func (m *MessageViewModel) scrollToSelected() {
 	}
 
 	m.viewport.SetYOffset(desiredOffset)
+}
+
+// sendMessage sends a message to the channel.
+func (m *MessageViewModel) sendMessage() tea.Cmd {
+	text := strings.TrimSpace(m.inputArea.Value())
+
+	// Validate message
+	if text == "" {
+		return func() tea.Msg {
+			return MessageSentMsg{
+				Success: false,
+				Error:   "Message cannot be empty",
+			}
+		}
+	}
+
+	return func() tea.Msg {
+		// If no sender is configured, return an error
+		if m.sender == nil {
+			return MessageSentMsg{
+				Success: false,
+				Error:   "Message sender not configured",
+			}
+		}
+
+		// Send message via the sender
+		ctx := context.Background()
+		err := m.sender.SendMessage(ctx, m.channelID, text)
+		if err != nil {
+			return MessageSentMsg{
+				Success: false,
+				Error:   err.Error(),
+			}
+		}
+
+		return MessageSentMsg{
+			Success:   true,
+			ChannelID: m.channelID,
+			Text:      text,
+		}
+	}
+}
+
+// refreshMessages fetches the latest messages from the server.
+func (m *MessageViewModel) refreshMessages() tea.Cmd {
+	return func() tea.Msg {
+		// If no sender is configured, skip refresh
+		if m.sender == nil {
+			return nil
+		}
+
+		// Fetch messages data
+		ctx := context.Background()
+		messages, nextCursor, err := m.sender.GetMessages(ctx, m.channelID, 50, "")
+		if err != nil {
+			// Silently ignore errors during refresh
+			return nil
+		}
+
+		return MessagesLoadedMsg{
+			ChannelID:  m.channelID,
+			Messages:   messages,
+			NextCursor: nextCursor,
+		}
+	}
 }
