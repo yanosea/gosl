@@ -84,6 +84,18 @@ func (mr *MockCacheRepositoryMockRecorder) GetMessages(channelID any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMessages", reflect.TypeOf((*MockCacheRepository)(nil).GetMessages), channelID)
 }
 
+// InvalidateMessages mocks base method.
+func (m *MockCacheRepository) InvalidateMessages(channelID string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "InvalidateMessages", channelID)
+}
+
+// InvalidateMessages indicates an expected call of InvalidateMessages.
+func (mr *MockCacheRepositoryMockRecorder) InvalidateMessages(channelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InvalidateMessages", reflect.TypeOf((*MockCacheRepository)(nil).InvalidateMessages), channelID)
+}
+
 // SetCurrentChannel mocks base method.
 func (m *MockCacheRepository) SetCurrentChannel(channelID string) {
 	m.ctrl.T.Helper()
