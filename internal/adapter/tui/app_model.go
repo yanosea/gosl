@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/yanosea/gosl/internal/app/port"
 	"github.com/yanosea/gosl/internal/app/service"
+	"github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
 type AppState int
@@ -44,12 +46,14 @@ func (s AppState) String() string {
 }
 
 type AppModel struct {
-	state          AppState
-	appService     *service.AppService
-	config         *port.Config
-	width          int
-	height         int
-	autoNavigated  bool
+	state            AppState
+	appService       *service.AppService
+	config           *port.Config
+	width            int
+	height           int
+	autoNavigated    bool
+	isDarkBackground bool
+	userColorService usercolor.Service
 
 	splash       SplashModel
 	channelList  ChannelListModel
@@ -61,21 +65,38 @@ type AppModel struct {
 }
 
 func NewAppModel(appService *service.AppService, config *port.Config) AppModel {
+	return NewAppModelWithColorService(appService, config, nil)
+}
+
+func NewAppModelWithColorService(appService *service.AppService, config *port.Config, colorService usercolor.Service) AppModel {
 	return AppModel{
-		state:        StateSplash,
-		appService:   appService,
-		config:       config,
-		splash:       NewSplashModel(),
-		channelList:  NewChannelListModel(80, 24),
-		messageView:  NewMessageViewModel("", 80, 24),
-		threadView:   NewThreadViewModel("", "", 80, 24),
-		messageInput: NewMessageInputModelWithSender(InputModeChannelMessage, "", "", 80, 24, appService),
-		helpView:     NewHelpModel(80, 24),
+		state:            StateSplash,
+		appService:       appService,
+		config:           config,
+		userColorService: colorService,
+		splash:           NewSplashModel(),
+		channelList:      NewChannelListModel(80, 24),
+		messageView:      NewMessageViewModelWithColorService("", 80, 24, nil, colorService),
+		threadView:       NewThreadViewModelWithColorService("", "", 80, 24, nil, colorService),
+		messageInput:     NewMessageInputModelWithSender(InputModeChannelMessage, "", "", 80, 24, appService),
+		helpView:         NewHelpModel(80, 24),
 	}
 }
 
 func (m AppModel) Init() tea.Cmd {
-	return m.splash.Init()
+	return tea.Batch(
+		m.splash.Init(),
+		detectBackgroundColorCmd(),
+	)
+}
+
+// detectBackgroundColorCmd returns a command that detects terminal background theme
+func detectBackgroundColorCmd() tea.Cmd {
+	return func() tea.Msg {
+		// Use lipgloss to detect if terminal has dark background
+		isDark := lipgloss.HasDarkBackground()
+		return BackgroundColorMsg{IsDark: isDark}
+	}
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -112,6 +133,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch evt := msg.(type) {
+	case BackgroundColorMsg:
+		m.isDarkBackground = evt.IsDark
+		// Propagate to MessageViewModel
+		m.messageView.isDarkBackground = evt.IsDark
+		return m, nil
+
 	case SlackConnectedMsg:
 		if m.state == StateSplash {
 			return m, loadChannelsCmd(m.appService)
@@ -126,7 +153,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.autoNavigated = true
 			for _, ch := range evt.Channels {
 				if ch.Name == m.config.DefaultChannel {
-					m.messageView = NewMessageViewModelWithSender(ch.ID, m.width, m.height, m.appService)
+					m.messageView = NewMessageViewModelWithColorService(ch.ID, m.width, m.height, m.appService, m.userColorService)
 					m.state = StateMessageView
 					initCmd := m.messageView.Init()
 					loadCmd := loadMessagesCmd(m.appService, ch.ID, 50, "")
@@ -208,7 +235,7 @@ func (m AppModel) updateChannelList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if keyMsg.Type == tea.KeyEnter && !m.channelList.searchMode {
 			selectedChannel := m.channelList.GetSelectedChannel()
 			if selectedChannel != nil {
-				m.messageView = NewMessageViewModelWithSender(selectedChannel.ID, m.width, m.height, m.appService)
+				m.messageView = NewMessageViewModelWithColorService(selectedChannel.ID, m.width, m.height, m.appService, m.userColorService)
 				m.state = StateMessageView
 				initCmd := m.messageView.Init()
 				loadCmd := loadMessagesCmd(m.appService, selectedChannel.ID, 50, "")
@@ -236,7 +263,7 @@ func (m AppModel) updateMessageView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if threadTS == "" {
 					threadTS = selectedMsg.ID
 				}
-				m.threadView = NewThreadViewModelWithSender(m.messageView.channelID, threadTS, m.width, m.height, m.appService)
+				m.threadView = NewThreadViewModelWithColorService(m.messageView.channelID, threadTS, m.width, m.height, m.appService, m.userColorService)
 				m.state = StateThreadView
 				initCmd := m.threadView.Init()
 				loadCmd := loadThreadCmd(m.appService, m.messageView.channelID, threadTS)

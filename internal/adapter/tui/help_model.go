@@ -21,10 +21,10 @@ type keyMap struct {
 	VimLeft  key.Binding
 	VimRight key.Binding
 
-	Enter  key.Binding
-	Back   key.Binding
-	Quit   key.Binding
-	Help   key.Binding
+	Enter   key.Binding
+	Back    key.Binding
+	Quit    key.Binding
+	Help    key.Binding
 	Refresh key.Binding
 
 	NewMessage key.Binding

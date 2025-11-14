@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/exp/teatest v0.0.0-20251109135125-8916d276318f
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/lucasb-eyer/go-colorful v1.2.0
 	github.com/slack-go/slack v0.17.3
 	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.16.0
@@ -25,7 +26,6 @@ require (
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect

@@ -98,28 +98,28 @@ func TestAppModel_StateTransitions(t *testing.T) {
 // TestAppModel_GlobalKeyBindings tests global key bindings
 func TestAppModel_GlobalKeyBindings(t *testing.T) {
 	tests := []struct {
-		name     string
-		keyMsg   tea.KeyMsg
+		name       string
+		keyMsg     tea.KeyMsg
 		shouldQuit bool
 	}{
 		{
-			name:     "q key should quit",
-			keyMsg:   tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}},
+			name:       "q key should quit",
+			keyMsg:     tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}},
 			shouldQuit: true,
 		},
 		{
-			name:     "Ctrl+C should quit",
-			keyMsg:   tea.KeyMsg{Type: tea.KeyCtrlC},
+			name:       "Ctrl+C should quit",
+			keyMsg:     tea.KeyMsg{Type: tea.KeyCtrlC},
 			shouldQuit: true,
 		},
 		{
-			name:     "? key should show help",
-			keyMsg:   tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}},
+			name:       "? key should show help",
+			keyMsg:     tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}},
 			shouldQuit: false,
 		},
 		{
-			name:     "Other keys should not quit",
-			keyMsg:   tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}},
+			name:       "Other keys should not quit",
+			keyMsg:     tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}},
 			shouldQuit: false,
 		},
 	}
@@ -242,5 +242,50 @@ func TestAppModel_ErrorState(t *testing.T) {
 
 	if appModel.state != StateError {
 		t.Errorf("State = %v, want %v", appModel.state, StateError)
+	}
+}
+
+// TestAppModel_BackgroundColorMsg tests terminal background color detection
+func TestAppModel_BackgroundColorMsg(t *testing.T) {
+	tests := []struct {
+		name           string
+		isDark         bool
+		expectedIsDark bool
+	}{
+		{
+			name:           "Dark background detected",
+			isDark:         true,
+			expectedIsDark: true,
+		},
+		{
+			name:           "Light background detected",
+			isDark:         false,
+			expectedIsDark: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewAppModel(nil, nil)
+
+			// Send BackgroundColorMsg
+			bgMsg := BackgroundColorMsg{IsDark: tt.isDark}
+			updatedModel, _ := model.Update(bgMsg)
+
+			appModel, ok := updatedModel.(AppModel)
+			if !ok {
+				t.Fatal("Update did not return AppModel")
+			}
+
+			// Verify AppModel stored the background theme
+			if appModel.isDarkBackground != tt.expectedIsDark {
+				t.Errorf("AppModel.isDarkBackground = %v, want %v", appModel.isDarkBackground, tt.expectedIsDark)
+			}
+
+			// Verify MessageViewModel received the update
+			if appModel.messageView.isDarkBackground != tt.expectedIsDark {
+				t.Errorf("MessageViewModel.isDarkBackground = %v, want %v", appModel.messageView.isDarkBackground, tt.expectedIsDark)
+			}
+		})
 	}
 }

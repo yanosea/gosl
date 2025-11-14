@@ -144,8 +144,8 @@ func TestConfigAdapter_Load_NotFound(t *testing.T) {
 
 func TestConfigAdapter_Load_Validation(t *testing.T) {
 	tests := []struct {
-		name           string
-		config         *port.Config
+		name             string
+		config           *port.Config
 		wantMessageLimit int
 	}{
 		{

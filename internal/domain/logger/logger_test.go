@@ -152,9 +152,9 @@ func TestLogger_WithContext(t *testing.T) {
 // TestGetLogFilePath tests log file path resolution
 func TestGetLogFilePath(t *testing.T) {
 	tests := []struct {
-		name    string
-		setEnv  map[string]string
-		want    string
+		name   string
+		setEnv map[string]string
+		want   string
 	}{
 		{
 			name: "Use XDG_DATA_HOME when set",

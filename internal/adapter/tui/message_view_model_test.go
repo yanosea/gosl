@@ -2,12 +2,15 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/yanosea/gosl/internal/domain/message"
+	"github.com/yanosea/gosl/internal/domain/user"
+	"github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
 // TestMessageViewModel_Init tests the initialization of MessageViewModel
@@ -247,23 +250,23 @@ func TestMessageViewModel_RenderMessages(t *testing.T) {
 
 	messages := []message.Message{
 		{
-			ID:        "M1",
-			ChannelID: "C12345",
-			UserID:    "U001",
-			UserName:  "Alice",
-			Text:      "Hello with URL https://example.com and mention @bob",
-			Timestamp: time.Date(2025, 1, 10, 14, 30, 0, 0, time.UTC),
-			ThreadTS:  "",
+			ID:         "M1",
+			ChannelID:  "C12345",
+			UserID:     "U001",
+			UserName:   "Alice",
+			Text:       "Hello with URL https://example.com and mention @bob",
+			Timestamp:  time.Date(2025, 1, 10, 14, 30, 0, 0, time.UTC),
+			ThreadTS:   "",
 			ReplyCount: 0,
 		},
 		{
-			ID:        "M2",
-			ChannelID: "C12345",
-			UserID:    "U002",
-			UserName:  "Bob",
-			Text:      "Thread parent message",
-			Timestamp: time.Date(2025, 1, 10, 14, 35, 0, 0, time.UTC),
-			ThreadTS:  "1234567890.123456",
+			ID:         "M2",
+			ChannelID:  "C12345",
+			UserID:     "U002",
+			UserName:   "Bob",
+			Text:       "Thread parent message",
+			Timestamp:  time.Date(2025, 1, 10, 14, 35, 0, 0, time.UTC),
+			ThreadTS:   "1234567890.123456",
 			ReplyCount: 3,
 		},
 	}
@@ -397,4 +400,150 @@ func TestMessageViewModel_HighlightText_Combined(t *testing.T) {
 	// For now, just ensure the function runs without panic
 	// Full validation would check both URL and mention highlighting
 	_ = result
+}
+
+// TestMessageViewModel_BackgroundColorMsg tests BackgroundColorMsg handling
+func TestMessageViewModel_BackgroundColorMsg(t *testing.T) {
+	tests := []struct {
+		name           string
+		isDark         bool
+		expectedIsDark bool
+	}{
+		{
+			name:           "Dark background",
+			isDark:         true,
+			expectedIsDark: true,
+		},
+		{
+			name:           "Light background",
+			isDark:         false,
+			expectedIsDark: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewMessageViewModel("C12345", 80, 24)
+
+			// Send BackgroundColorMsg
+			bgMsg := BackgroundColorMsg{IsDark: tt.isDark}
+			updatedModel, _ := model.Update(bgMsg)
+
+			// Verify background theme was stored
+			if updatedModel.isDarkBackground != tt.expectedIsDark {
+				t.Errorf("isDarkBackground = %v, want %v", updatedModel.isDarkBackground, tt.expectedIsDark)
+			}
+		})
+	}
+}
+
+// TestMessageViewModel_UserColorServiceInjection tests UserColorService injection
+func TestMessageViewModel_UserColorServiceInjection(t *testing.T) {
+	cache := newMockUserColorCache()
+	colorService := newMockUserColorService(cache)
+
+	// Create MessageViewModel with color service using the extended constructor
+	model := NewMessageViewModelWithColorService("C12345", 80, 24, nil, colorService)
+
+	// Verify color service was injected
+	if model.userColorService == nil {
+		t.Error("UserColorService was not injected")
+	}
+}
+
+// Mock implementations for testing
+type mockUserColorCache struct{}
+
+func newMockUserColorCache() *mockUserColorCache {
+	return &mockUserColorCache{}
+}
+
+func (m *mockUserColorCache) Get(userID string) (usercolor.AdaptiveColor, bool) {
+	return usercolor.AdaptiveColor{}, false
+}
+
+func (m *mockUserColorCache) Set(userID string, color usercolor.AdaptiveColor) {}
+
+func (m *mockUserColorCache) Clear() {}
+
+func (m *mockUserColorCache) Len() int {
+	return 0
+}
+
+type mockUserColorService struct {
+	cache              *mockUserColorCache
+	generateCallCount  int
+	lastCalledWithUser string
+}
+
+func newMockUserColorService(cache *mockUserColorCache) *mockUserColorService {
+	return &mockUserColorService{cache: cache}
+}
+
+func (m *mockUserColorService) GetUserColor(u *user.User) usercolor.AdaptiveColor {
+	return usercolor.AdaptiveColor{
+		Light: usercolor.Color{R: 100, G: 100, B: 100},
+		Dark:  usercolor.Color{R: 200, G: 200, B: 200},
+	}
+}
+
+func (m *mockUserColorService) GenerateColorFromID(userID string) usercolor.AdaptiveColor {
+	m.generateCallCount++
+	m.lastCalledWithUser = userID
+	return usercolor.AdaptiveColor{
+		Light: usercolor.Color{R: 100, G: 100, B: 100},
+		Dark:  usercolor.Color{R: 200, G: 200, B: 200},
+	}
+}
+
+func (m *mockUserColorService) ParseSlackColor(colorHex string) (usercolor.AdaptiveColor, error) {
+	return usercolor.AdaptiveColor{}, nil
+}
+
+func (m *mockUserColorService) ValidateContrast(foreground, background usercolor.Color) bool {
+	return true
+}
+
+// TestMessageViewModel_RenderWithUserColors tests message rendering with user-specific background colors
+func TestMessageViewModel_RenderWithUserColors(t *testing.T) {
+	cache := newMockUserColorCache()
+	colorService := newMockUserColorService(cache)
+
+	model := NewMessageViewModelWithColorService("C12345", 80, 24, nil, colorService)
+	model.isDarkBackground = true // Simulate dark theme
+
+	// Add test messages from different users
+	testMessages := []message.Message{
+		{
+			ID:        "M1",
+			ChannelID: "C12345",
+			UserID:    "U001",
+			UserName:  "Alice",
+			Text:      "Hello",
+			Timestamp: time.Now(),
+		},
+		{
+			ID:        "M2",
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Bob",
+			Text:      "Hi there",
+			Timestamp: time.Now(),
+		},
+	}
+
+	model.SetMessages(testMessages, "")
+
+	// Render messages
+	rendered := model.renderMessages()
+
+	// Verify rendering produced non-empty output
+	if rendered == "" {
+		t.Error("renderMessages() returned empty string")
+	}
+
+	// Verify messages were rendered (this is a basic check - visual inspection would be needed for colors)
+	if !strings.Contains(rendered, "Alice") || !strings.Contains(rendered, "Bob") {
+		t.Error("Rendered output should contain user names")
+	}
 }

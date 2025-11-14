@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/yanosea/gosl/internal/domain/message"
+	"github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
 const (
@@ -20,20 +21,22 @@ const (
 )
 
 type MessageViewModel struct {
-	viewport         viewport.Model
-	messages         []message.Message
-	selectedIndex    int
+	viewport          viewport.Model
+	messages          []message.Message
+	selectedIndex     int
 	selectedMessageID string
-	channelID        string
-	nextCursor       string
-	width            int
-	height           int
-	renderCache      *RenderCache
-	stringBuilders   *StringBuilderPool
-	isInitialized    bool
-	inputArea        textarea.Model
-	inputFocused     bool
-	sender           MessageSender
+	channelID         string
+	nextCursor        string
+	width             int
+	height            int
+	renderCache       *RenderCache
+	stringBuilders    *StringBuilderPool
+	isInitialized     bool
+	inputArea         textarea.Model
+	inputFocused      bool
+	sender            MessageSender
+	isDarkBackground  bool
+	userColorService  usercolor.Service
 }
 
 func NewMessageViewModel(channelID string, width, height int) MessageViewModel {
@@ -41,6 +44,10 @@ func NewMessageViewModel(channelID string, width, height int) MessageViewModel {
 }
 
 func NewMessageViewModelWithSender(channelID string, width, height int, sender MessageSender) MessageViewModel {
+	return NewMessageViewModelWithColorService(channelID, width, height, sender, nil)
+}
+
+func NewMessageViewModelWithColorService(channelID string, width, height int, sender MessageSender, colorService usercolor.Service) MessageViewModel {
 	// Calculate heights: header(2) + input area(5) + footer(2) = 9 lines reserved
 	inputHeight := 3
 	reservedHeight := 9
@@ -61,18 +68,19 @@ func NewMessageViewModelWithSender(channelID string, width, height int, sender M
 	ta.Blur() // Start with viewport focused
 
 	return MessageViewModel{
-		viewport:       vp,
-		messages:       []message.Message{},
-		selectedIndex:  0,
-		channelID:      channelID,
-		nextCursor:     "",
-		width:          width,
-		height:         height,
-		renderCache:    NewRenderCache(),
-		stringBuilders: NewStringBuilderPool(),
-		inputArea:      ta,
-		inputFocused:   false,
-		sender:         sender,
+		viewport:         vp,
+		messages:         []message.Message{},
+		selectedIndex:    0,
+		channelID:        channelID,
+		nextCursor:       "",
+		width:            width,
+		height:           height,
+		renderCache:      NewRenderCache(),
+		stringBuilders:   NewStringBuilderPool(),
+		inputArea:        ta,
+		inputFocused:     false,
+		sender:           sender,
+		userColorService: colorService,
 	}
 }
 
@@ -177,6 +185,11 @@ func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) {
 			m.viewport.ViewDown()
 			return m, nil
 		}
+
+	case BackgroundColorMsg:
+		// Update background theme
+		m.isDarkBackground = msg.IsDark
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -430,13 +443,41 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
 
 	highlightedText := m.highlightText(msg.Text)
 
+	// Apply user-specific background color if colorService is available
+	var messageStyle lipgloss.Style
+	if m.userColorService != nil {
+		// Generate color from UserID
+		adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
+
+		// Select appropriate color based on terminal theme
+		var bgColor usercolor.Color
+		if m.isDarkBackground {
+			bgColor = adaptiveColor.Dark
+		} else {
+			bgColor = adaptiveColor.Light
+		}
+
+		// Create style with background color and contrasting foreground
+		messageStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color(bgColor.ToHex())).
+			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
+			Padding(0, 1)
+	} else {
+		// No color service - use default style
+		messageStyle = lipgloss.NewStyle()
+	}
+
 	lines := strings.Split(highlightedText, "\n")
 	for i, line := range lines {
 		if i > 0 {
 			msgBuilder.WriteString("\n")
 		}
 		msgBuilder.WriteString(strings.Repeat(" ", messageTextIndent))
-		msgBuilder.WriteString(line)
+		if m.userColorService != nil {
+			msgBuilder.WriteString(messageStyle.Render(line))
+		} else {
+			msgBuilder.WriteString(line)
+		}
 	}
 
 	if msg.ReplyCount > 0 {

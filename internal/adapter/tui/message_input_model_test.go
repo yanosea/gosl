@@ -14,16 +14,16 @@ import (
 
 // MockMessageSender is a mock implementation of MessageSender for testing
 type MockMessageSender struct {
-	sendMessageCalled      bool
-	sendThreadReplyCalled  bool
-	sendMessageError       error
-	sendThreadReplyError   error
-	lastChannelID          string
-	lastThreadTS           string
-	lastText               string
-	getMembersCalled       bool
-	getMembersResult       []user.User
-	getMembersError        error
+	sendMessageCalled     bool
+	sendThreadReplyCalled bool
+	sendMessageError      error
+	sendThreadReplyError  error
+	lastChannelID         string
+	lastThreadTS          string
+	lastText              string
+	getMembersCalled      bool
+	getMembersResult      []user.User
+	getMembersError       error
 }
 
 func (m *MockMessageSender) SendMessage(ctx context.Context, channelID, text string) error {
@@ -460,9 +460,9 @@ func TestMessageInputModel_SendThreadReply(t *testing.T) {
 // TestMessageInputModel_MentionSuggestions tests mention autocomplete functionality
 func TestMessageInputModel_MentionSuggestions(t *testing.T) {
 	mockUsers := []user.User{
-		{ID: "U1", Name: "alice", DisplayName: "Alice"},
-		{ID: "U2", Name: "bob", DisplayName: "Bob"},
-		{ID: "U3", Name: "charlie", DisplayName: "Charlie"},
+		{ID: "U1", Name: "alice", DisplayName: "Alice", Color: nil},
+		{ID: "U2", Name: "bob", DisplayName: "Bob", Color: nil},
+		{ID: "U3", Name: "charlie", DisplayName: "Charlie", Color: nil},
 	}
 
 	tests := []struct {
@@ -542,9 +542,9 @@ func TestMessageInputModel_MentionSuggestions(t *testing.T) {
 // TestMessageInputModel_FilterMentionSuggestions tests filtering of mention suggestions
 func TestMessageInputModel_FilterMentionSuggestions(t *testing.T) {
 	mockUsers := []user.User{
-		{ID: "U1", Name: "alice", DisplayName: "Alice"},
-		{ID: "U2", Name: "alicia", DisplayName: "Alicia"},
-		{ID: "U3", Name: "bob", DisplayName: "Bob"},
+		{ID: "U1", Name: "alice", DisplayName: "Alice", Color: nil},
+		{ID: "U2", Name: "alicia", DisplayName: "Alicia", Color: nil},
+		{ID: "U3", Name: "bob", DisplayName: "Bob", Color: nil},
 	}
 
 	model := NewMessageInputModelWithSender(InputModeChannelMessage, "C12345", "", 80, 24, nil)
@@ -568,8 +568,8 @@ func TestMessageInputModel_FilterMentionSuggestions(t *testing.T) {
 // TestMessageInputModel_SelectMentionSuggestion tests selecting a mention suggestion
 func TestMessageInputModel_SelectMentionSuggestion(t *testing.T) {
 	mockUsers := []user.User{
-		{ID: "U1", Name: "alice", DisplayName: "Alice"},
-		{ID: "U2", Name: "bob", DisplayName: "Bob"},
+		{ID: "U1", Name: "alice", DisplayName: "Alice", Color: nil},
+		{ID: "U2", Name: "bob", DisplayName: "Bob", Color: nil},
 	}
 
 	model := NewMessageInputModelWithSender(InputModeChannelMessage, "C12345", "", 80, 24, nil)

@@ -12,14 +12,14 @@ func TestNewMessage(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name     string
-		id       string
+		name      string
+		id        string
 		channelID string
-		userID   string
-		userName string
-		text     string
+		userID    string
+		userName  string
+		text      string
 		timestamp time.Time
-		expected message.Message
+		expected  message.Message
 	}{
 		{
 			name:      "basic message",
@@ -144,23 +144,23 @@ func TestMessage_Validate(t *testing.T) {
 
 func TestMessage_SetThreadInfo(t *testing.T) {
 	tests := []struct {
-		name        string
-		threadTS    string
-		replyCount  int
+		name         string
+		threadTS     string
+		replyCount   int
 		wantThreadTS string
 		wantReplies  int
 	}{
 		{
-			name:        "set thread info",
-			threadTS:    "1234567890.123456",
-			replyCount:  5,
+			name:         "set thread info",
+			threadTS:     "1234567890.123456",
+			replyCount:   5,
 			wantThreadTS: "1234567890.123456",
 			wantReplies:  5,
 		},
 		{
-			name:        "clear thread info",
-			threadTS:    "",
-			replyCount:  0,
+			name:         "clear thread info",
+			threadTS:     "",
+			replyCount:   0,
 			wantThreadTS: "",
 			wantReplies:  0,
 		},

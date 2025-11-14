@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -71,13 +72,13 @@ func TestThreadViewModel_SetThread(t *testing.T) {
 	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
 
 	parent := message.Message{
-		ID:        "M1",
-		ChannelID: "C12345",
-		UserID:    "U001",
-		UserName:  "Alice",
-		Text:      "Parent message",
-		Timestamp: time.Now(),
-		ThreadTS:  "1234567890.123456",
+		ID:         "M1",
+		ChannelID:  "C12345",
+		UserID:     "U001",
+		UserName:   "Alice",
+		Text:       "Parent message",
+		Timestamp:  time.Now(),
+		ThreadTS:   "1234567890.123456",
 		ReplyCount: 2,
 	}
 
@@ -126,13 +127,13 @@ func TestThreadViewModel_AddReply(t *testing.T) {
 	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
 
 	parent := message.Message{
-		ID:        "M1",
-		ChannelID: "C12345",
-		UserID:    "U001",
-		UserName:  "Alice",
-		Text:      "Parent message",
-		Timestamp: time.Now(),
-		ThreadTS:  "1234567890.123456",
+		ID:         "M1",
+		ChannelID:  "C12345",
+		UserID:     "U001",
+		UserName:   "Alice",
+		Text:       "Parent message",
+		Timestamp:  time.Now(),
+		ThreadTS:   "1234567890.123456",
 		ReplyCount: 1,
 	}
 
@@ -212,13 +213,13 @@ func TestThreadViewModel_Update(t *testing.T) {
 
 			// Set up thread with parent and replies
 			parent := message.Message{
-				ID:        "M1",
-				ChannelID: "C12345",
-				UserID:    "U001",
-				UserName:  "Alice",
-				Text:      "Parent message",
-				Timestamp: time.Now(),
-				ThreadTS:  "1234567890.123456",
+				ID:         "M1",
+				ChannelID:  "C12345",
+				UserID:     "U001",
+				UserName:   "Alice",
+				Text:       "Parent message",
+				Timestamp:  time.Now(),
+				ThreadTS:   "1234567890.123456",
 				ReplyCount: 1,
 			}
 			replies := []message.Message{
@@ -248,13 +249,13 @@ func TestThreadViewModel_View(t *testing.T) {
 	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
 
 	parent := message.Message{
-		ID:        "M1",
-		ChannelID: "C12345",
-		UserID:    "U001",
-		UserName:  "Alice",
-		Text:      "Parent message",
-		Timestamp: time.Date(2025, 1, 10, 14, 30, 0, 0, time.UTC),
-		ThreadTS:  "1234567890.123456",
+		ID:         "M1",
+		ChannelID:  "C12345",
+		UserID:     "U001",
+		UserName:   "Alice",
+		Text:       "Parent message",
+		Timestamp:  time.Date(2025, 1, 10, 14, 30, 0, 0, time.UTC),
+		ThreadTS:   "1234567890.123456",
 		ReplyCount: 1,
 	}
 
@@ -288,13 +289,13 @@ func TestThreadViewModel_RenderThread(t *testing.T) {
 	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
 
 	parent := message.Message{
-		ID:        "M1",
-		ChannelID: "C12345",
-		UserID:    "U001",
-		UserName:  "Alice",
-		Text:      "Parent message",
-		Timestamp: time.Date(2025, 1, 10, 14, 30, 0, 0, time.UTC),
-		ThreadTS:  "1234567890.123456",
+		ID:         "M1",
+		ChannelID:  "C12345",
+		UserID:     "U001",
+		UserName:   "Alice",
+		Text:       "Parent message",
+		Timestamp:  time.Date(2025, 1, 10, 14, 30, 0, 0, time.UTC),
+		ThreadTS:   "1234567890.123456",
 		ReplyCount: 2,
 	}
 
@@ -336,13 +337,13 @@ func TestThreadViewModel_Navigation(t *testing.T) {
 	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
 
 	parent := message.Message{
-		ID:        "M1",
-		ChannelID: "C12345",
-		UserID:    "U001",
-		UserName:  "Alice",
-		Text:      "Parent",
-		Timestamp: time.Now(),
-		ThreadTS:  "1234567890.123456",
+		ID:         "M1",
+		ChannelID:  "C12345",
+		UserID:     "U001",
+		UserName:   "Alice",
+		Text:       "Parent",
+		Timestamp:  time.Now(),
+		ThreadTS:   "1234567890.123456",
 		ReplyCount: 2,
 	}
 
@@ -394,13 +395,13 @@ func TestThreadViewModel_EmptyThread(t *testing.T) {
 	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
 
 	parent := message.Message{
-		ID:        "M1",
-		ChannelID: "C12345",
-		UserID:    "U001",
-		UserName:  "Alice",
-		Text:      "Parent with no replies",
-		Timestamp: time.Now(),
-		ThreadTS:  "1234567890.123456",
+		ID:         "M1",
+		ChannelID:  "C12345",
+		UserID:     "U001",
+		UserName:   "Alice",
+		Text:       "Parent with no replies",
+		Timestamp:  time.Now(),
+		ThreadTS:   "1234567890.123456",
 		ReplyCount: 0,
 	}
 
@@ -416,5 +417,242 @@ func TestThreadViewModel_EmptyThread(t *testing.T) {
 	view := model.View()
 	if view == "" {
 		t.Error("expected non-empty view even with no replies")
+	}
+}
+
+// TestThreadViewModel_RenderThreadMessageLinesWithUserColors tests that renderThreadMessageLines
+// applies user-specific background colors when UserColorService is provided
+func TestThreadViewModel_RenderThreadMessageLinesWithUserColors(t *testing.T) {
+	cache := newMockUserColorCache()
+	colorService := newMockUserColorService(cache)
+
+	model := NewThreadViewModelWithColorService("C12345", "1234567890.123456", 80, 24, nil, colorService)
+	model.isDarkBackground = true // Simulate dark theme
+
+	parent := message.Message{
+		ID:         "M1",
+		ChannelID:  "C12345",
+		UserID:     "U001",
+		UserName:   "Alice",
+		Text:       "Parent message",
+		Timestamp:  time.Now(),
+		ThreadTS:   "1234567890.123456",
+		ReplyCount: 2,
+	}
+
+	replies := []message.Message{
+		{
+			ID:        "M2",
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Bob",
+			Text:      "First reply",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		},
+		{
+			ID:        "M3",
+			ChannelID: "C12345",
+			UserID:    "U001",
+			UserName:  "Alice",
+			Text:      "Second reply",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		},
+	}
+
+	model.SetThread(parent, replies)
+
+	// Render all thread lines
+	allLines := model.getAllThreadLines()
+
+	// Verify rendering produced non-empty output
+	if len(allLines) == 0 {
+		t.Error("getAllThreadLines() returned empty array")
+	}
+
+	// Verify GenerateColorFromID was called (at least once for parent message + replies)
+	// Parent (1 call) + 2 replies (2 calls) = 3 calls minimum
+	if colorService.generateCallCount < 3 {
+		t.Errorf("Expected GenerateColorFromID to be called at least 3 times, got %d", colorService.generateCallCount)
+	}
+
+	// Verify that messageStyle.Render() added padding (indicated by trailing space after message text)
+	// When Lipgloss Padding(0, 1) is applied, it adds a space after the text
+	hasStyledMessage := false
+	for _, line := range allLines {
+		// Look for message lines with trailing space (indicating Lipgloss padding was applied)
+		if strings.Contains(line, "Parent message ") || strings.Contains(line, "First reply ") || strings.Contains(line, "Second reply ") {
+			hasStyledMessage = true
+			break
+		}
+	}
+
+	if !hasStyledMessage {
+		t.Error("Expected styled messages with padding (indicated by trailing space)")
+	}
+}
+
+// TestThreadViewModel_RenderThreadMessageLinesWithNilColorService tests that renderThreadMessageLines
+// works correctly when UserColorService is nil (backward compatibility)
+func TestThreadViewModel_RenderThreadMessageLinesWithNilColorService(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+	// userColorService is nil by default
+
+	parent := message.Message{
+		ID:         "M1",
+		ChannelID:  "C12345",
+		UserID:     "U001",
+		UserName:   "Alice",
+		Text:       "Parent message",
+		Timestamp:  time.Now(),
+		ThreadTS:   "1234567890.123456",
+		ReplyCount: 1,
+	}
+
+	replies := []message.Message{
+		{
+			ID:        "M2",
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Bob",
+			Text:      "Reply message",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		},
+	}
+
+	model.SetThread(parent, replies)
+
+	// Render all thread lines
+	allLines := model.getAllThreadLines()
+
+	// Verify rendering produced non-empty output
+	if len(allLines) == 0 {
+		t.Error("getAllThreadLines() returned empty array")
+	}
+
+	// Verify that no padding was applied (no trailing space after message text)
+	// When colorService is nil, messageStyle.Render() is not called, so no padding
+	hasUnstyledMessage := false
+	for _, line := range allLines {
+		// Look for message lines WITHOUT trailing space (indicating no Lipgloss padding)
+		// The message text should appear directly without the extra space from Padding(0, 1)
+		if strings.Contains(line, "Parent message") && !strings.Contains(line, "Parent message ") {
+			hasUnstyledMessage = true
+			break
+		}
+		if strings.Contains(line, "Reply message") && !strings.Contains(line, "Reply message ") {
+			hasUnstyledMessage = true
+			break
+		}
+	}
+
+	if !hasUnstyledMessage {
+		t.Error("Expected unstyled messages without padding when colorService is nil")
+	}
+}
+
+// TestThreadViewModel_RenderThreadMessageLinesMultiline tests that background colors
+// are applied correctly to multi-line messages
+func TestThreadViewModel_RenderThreadMessageLinesMultiline(t *testing.T) {
+	cache := newMockUserColorCache()
+	colorService := newMockUserColorService(cache)
+
+	model := NewThreadViewModelWithColorService("C12345", "1234567890.123456", 80, 24, nil, colorService)
+	model.isDarkBackground = false // Light theme
+
+	parent := message.Message{
+		ID:         "M1",
+		ChannelID:  "C12345",
+		UserID:     "U001",
+		UserName:   "Alice",
+		Text:       "Line 1\nLine 2\nLine 3",
+		Timestamp:  time.Now(),
+		ThreadTS:   "1234567890.123456",
+		ReplyCount: 0,
+	}
+
+	model.SetThread(parent, []message.Message{})
+
+	// Render all thread lines
+	allLines := model.getAllThreadLines()
+
+	// Count lines with padding (indicating styled lines)
+	// Each line from the 3-line message should have Lipgloss padding applied
+	styledLineCount := 0
+	for _, line := range allLines {
+		// Look for lines with "Line X " (with trailing space from padding)
+		if strings.Contains(line, "Line 1 ") || strings.Contains(line, "Line 2 ") || strings.Contains(line, "Line 3 ") {
+			styledLineCount++
+		}
+	}
+
+	// Each line of the multi-line message should have background color applied
+	// (at least 3 lines for the 3-line message text)
+	if styledLineCount < 3 {
+		t.Errorf("Expected at least 3 styled lines for multi-line message, got %d", styledLineCount)
+	}
+}
+
+// TestThreadViewModel_RenderThreadMessageLinesIsDarkBackground tests that the appropriate
+// color variant (Light or Dark) is selected based on isDarkBackground flag
+func TestThreadViewModel_RenderThreadMessageLinesIsDarkBackground(t *testing.T) {
+	tests := []struct {
+		name             string
+		isDarkBackground bool
+	}{
+		{
+			name:             "Light theme",
+			isDarkBackground: false,
+		},
+		{
+			name:             "Dark theme",
+			isDarkBackground: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cache := newMockUserColorCache()
+			colorService := newMockUserColorService(cache)
+
+			model := NewThreadViewModelWithColorService("C12345", "1234567890.123456", 80, 24, nil, colorService)
+			model.isDarkBackground = tt.isDarkBackground
+
+			parent := message.Message{
+				ID:         "M1",
+				ChannelID:  "C12345",
+				UserID:     "U001",
+				UserName:   "Alice",
+				Text:       "Test message",
+				Timestamp:  time.Now(),
+				ThreadTS:   "1234567890.123456",
+				ReplyCount: 0,
+			}
+
+			model.SetThread(parent, []message.Message{})
+
+			// Render all thread lines
+			allLines := model.getAllThreadLines()
+
+			// Verify rendering produced output
+			if len(allLines) == 0 {
+				t.Error("getAllThreadLines() returned empty array")
+			}
+
+			// Verify that messageStyle.Render() was applied (indicated by padding)
+			hasStyledMessage := false
+			for _, line := range allLines {
+				if strings.Contains(line, "Test message ") {
+					hasStyledMessage = true
+					break
+				}
+			}
+
+			if !hasStyledMessage {
+				t.Error("Expected styled message with padding")
+			}
+		})
 	}
 }

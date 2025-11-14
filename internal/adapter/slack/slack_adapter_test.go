@@ -236,9 +236,9 @@ func TestSlackAdapter_PostMessage(t *testing.T) {
 	defer adapter.Disconnect()
 
 	tests := []struct {
-		name      string
-		text      string
-		wantErr   bool
+		name    string
+		text    string
+		wantErr bool
 	}{
 		{
 			name:    "empty text returns validation error",
@@ -309,6 +309,20 @@ func TestSlackAdapter_GetChannelMembers(t *testing.T) {
 		}
 		if member.Name == "" {
 			t.Error("User Name is empty")
+		}
+		// Verify Color field: should be nil or valid hex format with # prefix
+		if member.Color != nil {
+			color := *member.Color
+			if len(color) != 7 || color[0] != '#' {
+				t.Errorf("User Color format invalid: got %q, want #RRGGBB format", color)
+			}
+			// Verify hex characters (1-6 positions after #)
+			for i := 1; i < len(color); i++ {
+				c := color[i]
+				if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')) {
+					t.Errorf("User Color contains non-hex character: %q at position %d", c, i)
+				}
+			}
 		}
 	}
 }

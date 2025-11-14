@@ -108,7 +108,7 @@ func (m SplashModel) View() string {
 		s += errorStyle.Render("✗") + " Failed\n"
 		s += "\n"
 		if m.errorMessage != "" {
-			s += lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render("Error: " + m.errorMessage) + "\n"
+			s += lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render("Error: "+m.errorMessage) + "\n"
 		}
 		s += "\n"
 		s += lipgloss.NewStyle().Faint(true).Render("Press 'q' or Ctrl+C to quit") + "\n"

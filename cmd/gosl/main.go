@@ -18,16 +18,18 @@ import (
 	"github.com/yanosea/gosl/internal/app/service"
 	"github.com/yanosea/gosl/internal/domain/cache"
 	"github.com/yanosea/gosl/internal/domain/logger"
+	"github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
 const (
 	AppName    = "gosl"
 	AppVersion = "0.1.0"
 
-	DefaultMaxChannels   = 20
-	DefaultMaxCacheMemory = 100 * 1024 * 1024
-	ConfigDirPerm        = 0700
-	LogDirPerm           = 0755
+	DefaultMaxChannels        = 20
+	DefaultMaxCacheMemory     = 100 * 1024 * 1024
+	DefaultUserColorCacheSize = 500
+	ConfigDirPerm             = 0700
+	LogDirPerm                = 0755
 )
 
 type CLIConfig struct {
@@ -70,16 +72,18 @@ func run() error {
 }
 
 type Application struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	logger          *logger.Logger
-	configAdapter   *config.ConfigAdapter
-	slackAdapter    *slack.SlackAdapter
-	messageCache    *cache.MessageCache
-	appService      *service.AppService
-	eventDispatcher *tui.EventDispatcher
-	program         *tea.Program
-	errgroup        *errgroup.Group
+	ctx              context.Context
+	cancel           context.CancelFunc
+	logger           *logger.Logger
+	configAdapter    *config.ConfigAdapter
+	slackAdapter     *slack.SlackAdapter
+	messageCache     *cache.MessageCache
+	userColorCache   usercolor.Cache
+	userColorService usercolor.Service
+	appService       *service.AppService
+	eventDispatcher  *tui.EventDispatcher
+	program          *tea.Program
+	errgroup         *errgroup.Group
 }
 
 func initializeApp(ctx context.Context) (*Application, error) {
@@ -122,10 +126,15 @@ func initializeApp(ctx context.Context) (*Application, error) {
 
 	appLogger.Info(ctx, "configuration loaded", "message_limit", cfg.MessageLimit)
 
+	// Initialize user color service for message background colors
+	userColorCache := usercolor.NewUserColorCache(DefaultUserColorCacheSize)
+	userColorService := usercolor.NewUserColorService(userColorCache)
+	appLogger.Info(ctx, "user color service initialized", "cache_size", DefaultUserColorCacheSize)
+
 	slackAdapter := slack.NewSlackAdapter()
 	messageCache := cache.NewMessageCache(DefaultMaxChannels, DefaultMaxCacheMemory)
 	appService := service.NewAppService(configAdapter, slackAdapter, messageCache)
-	appModel := tui.NewAppModel(appService, cfg)
+	appModel := tui.NewAppModelWithColorService(appService, cfg, userColorService)
 
 	program := tea.NewProgram(
 		appModel,
@@ -138,16 +147,18 @@ func initializeApp(ctx context.Context) (*Application, error) {
 	g, gCtx := errgroup.WithContext(appCtx)
 
 	app := &Application{
-		ctx:             appCtx,
-		cancel:          appCancel,
-		logger:          appLogger,
-		configAdapter:   configAdapter,
-		slackAdapter:    slackAdapter,
-		messageCache:    messageCache,
-		appService:      appService,
-		eventDispatcher: eventDispatcher,
-		program:         program,
-		errgroup:        g,
+		ctx:              appCtx,
+		cancel:           appCancel,
+		logger:           appLogger,
+		configAdapter:    configAdapter,
+		slackAdapter:     slackAdapter,
+		messageCache:     messageCache,
+		userColorCache:   userColorCache,
+		userColorService: userColorService,
+		appService:       appService,
+		eventDispatcher:  eventDispatcher,
+		program:          program,
+		errgroup:         g,
 	}
 
 	g.Go(func() error {

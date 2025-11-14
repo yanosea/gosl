@@ -160,7 +160,6 @@ func TestChannelListModel_FilterChannels_EmptyQuery(t *testing.T) {
 	}
 }
 
-
 // TestChannelListModel_View tests rendering
 func TestChannelListModel_View(t *testing.T) {
 	model := NewChannelListModel(80, 24)

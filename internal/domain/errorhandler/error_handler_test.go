@@ -8,9 +8,9 @@ import (
 // TestAppError_Error tests that AppError implements the error interface correctly
 func TestAppError_Error(t *testing.T) {
 	tests := []struct {
-		name    string
-		appErr  AppError
-		want    string
+		name   string
+		appErr AppError
+		want   string
 	}{
 		{
 			name: "Auth error with Japanese message",
@@ -63,46 +63,46 @@ func TestAppError_Unwrap(t *testing.T) {
 // TestHandleError tests error categorization
 func TestHandleError(t *testing.T) {
 	tests := []struct {
-		name             string
-		err              error
-		wantCategory     ErrorCategory
-		wantRecoverable  bool
-		wantMessagePart  string
+		name            string
+		err             error
+		wantCategory    ErrorCategory
+		wantRecoverable bool
+		wantMessagePart string
 	}{
 		{
-			name:             "Invalid token error",
-			err:              ErrInvalidToken,
-			wantCategory:     ErrorCategoryAuth,
-			wantRecoverable:  false,
-			wantMessagePart:  "トークン",
+			name:            "Invalid token error",
+			err:             ErrInvalidToken,
+			wantCategory:    ErrorCategoryAuth,
+			wantRecoverable: false,
+			wantMessagePart: "トークン",
 		},
 		{
-			name:             "Rate limit exceeded error",
-			err:              ErrRateLimitExceeded,
-			wantCategory:     ErrorCategoryRateLimit,
-			wantRecoverable:  true,
-			wantMessagePart:  "制限",
+			name:            "Rate limit exceeded error",
+			err:             ErrRateLimitExceeded,
+			wantCategory:    ErrorCategoryRateLimit,
+			wantRecoverable: true,
+			wantMessagePart: "制限",
 		},
 		{
-			name:             "Network error",
-			err:              ErrNetworkError,
-			wantCategory:     ErrorCategoryNetwork,
-			wantRecoverable:  true,
-			wantMessagePart:  "ネットワーク",
+			name:            "Network error",
+			err:             ErrNetworkError,
+			wantCategory:    ErrorCategoryNetwork,
+			wantRecoverable: true,
+			wantMessagePart: "ネットワーク",
 		},
 		{
-			name:             "Channel not found error",
-			err:              ErrChannelNotFound,
-			wantCategory:     ErrorCategoryValidation,
-			wantRecoverable:  false,
-			wantMessagePart:  "チャンネル",
+			name:            "Channel not found error",
+			err:             ErrChannelNotFound,
+			wantCategory:    ErrorCategoryValidation,
+			wantRecoverable: false,
+			wantMessagePart: "チャンネル",
 		},
 		{
-			name:             "Unknown error",
-			err:              errors.New("some random error"),
-			wantCategory:     ErrorCategoryUnknown,
-			wantRecoverable:  false,
-			wantMessagePart:  "不明なエラー",
+			name:            "Unknown error",
+			err:             errors.New("some random error"),
+			wantCategory:    ErrorCategoryUnknown,
+			wantRecoverable: false,
+			wantMessagePart: "不明なエラー",
 		},
 	}
 

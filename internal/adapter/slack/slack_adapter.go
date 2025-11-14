@@ -463,10 +463,19 @@ func (a *SlackAdapter) GetChannelMembers(ctx context.Context, channelID string) 
 				displayName = userInfo.Name
 			}
 
+			// Extract Slack profile color (format: "9f69e7" without #)
+			var color *string
+			if userInfo.Color != "" {
+				// Add # prefix to convert to standard hex format
+				hexColor := "#" + userInfo.Color
+				color = &hexColor
+			}
+
 			u := user.User{
 				ID:          userInfo.ID,
 				Name:        userInfo.Name,
 				DisplayName: displayName,
+				Color:       color,
 			}
 
 			allMembers = append(allMembers, u)

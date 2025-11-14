@@ -12,24 +12,27 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/yanosea/gosl/internal/domain/message"
+	"github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
 // ThreadViewModel manages the thread view for displaying parent message and replies.
 type ThreadViewModel struct {
-	viewport         viewport.Model
-	parentMessage    message.Message
-	replies          []message.Message
-	selectedIndex    int
+	viewport          viewport.Model
+	parentMessage     message.Message
+	replies           []message.Message
+	selectedIndex     int
 	selectedMessageID string
-	channelID        string
-	threadTS         string
-	width            int
-	height           int
-	viewportHeight   int
-	scrollOffset     int
-	inputArea        textarea.Model
-	inputFocused     bool
-	sender           MessageSender
+	channelID         string
+	threadTS          string
+	width             int
+	height            int
+	viewportHeight    int
+	scrollOffset      int
+	inputArea         textarea.Model
+	inputFocused      bool
+	sender            MessageSender
+	isDarkBackground  bool
+	userColorService  usercolor.Service
 }
 
 // NewThreadViewModel creates a new ThreadViewModel instance.
@@ -39,6 +42,11 @@ func NewThreadViewModel(channelID, threadTS string, width, height int) ThreadVie
 
 // NewThreadViewModelWithSender creates a new ThreadViewModel instance with a MessageSender.
 func NewThreadViewModelWithSender(channelID, threadTS string, width, height int, sender MessageSender) ThreadViewModel {
+	return NewThreadViewModelWithColorService(channelID, threadTS, width, height, sender, nil)
+}
+
+// NewThreadViewModelWithColorService creates a new ThreadViewModel with user color support
+func NewThreadViewModelWithColorService(channelID, threadTS string, width, height int, sender MessageSender, colorService usercolor.Service) ThreadViewModel {
 	// Calculate heights: header(2) + input area(5) + footer(2) = 9 lines reserved
 	inputHeight := 3
 	reservedHeight := 9
@@ -59,19 +67,20 @@ func NewThreadViewModelWithSender(channelID, threadTS string, width, height int,
 	ta.Blur() // Start with viewport focused
 
 	return ThreadViewModel{
-		viewport:       vp,
-		parentMessage:  message.Message{},
-		replies:        []message.Message{},
-		selectedIndex:  0,
-		channelID:      channelID,
-		threadTS:       threadTS,
-		width:          width,
-		height:         height,
-		viewportHeight: viewportHeight,
-		scrollOffset:   0,
-		inputArea:      ta,
-		inputFocused:   false,
-		sender:         sender,
+		viewport:         vp,
+		parentMessage:    message.Message{},
+		replies:          []message.Message{},
+		selectedIndex:    0,
+		channelID:        channelID,
+		threadTS:         threadTS,
+		width:            width,
+		height:           height,
+		viewportHeight:   viewportHeight,
+		scrollOffset:     0,
+		inputArea:        ta,
+		inputFocused:     false,
+		sender:           sender,
+		userColorService: colorService,
 	}
 }
 
@@ -182,6 +191,11 @@ func (m ThreadViewModel) Update(msg tea.Msg) (ThreadViewModel, tea.Cmd) {
 			m.viewport.ViewDown()
 			return m, nil
 		}
+
+	case BackgroundColorMsg:
+		// Update background theme
+		m.isDarkBackground = msg.IsDark
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -453,6 +467,30 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
 	// Calculate base indentation for message text
 	baseIndent := "  " + strings.Repeat(" ", indent) + "   "
 
+	// Apply user-specific background color if colorService is available
+	var messageStyle lipgloss.Style
+	if m.userColorService != nil {
+		// Generate color from UserID
+		adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
+
+		// Select appropriate color based on terminal theme
+		var bgColor usercolor.Color
+		if m.isDarkBackground {
+			bgColor = adaptiveColor.Dark
+		} else {
+			bgColor = adaptiveColor.Light
+		}
+
+		// Create style with background color and contrasting foreground
+		messageStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color(bgColor.ToHex())).
+			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
+			Padding(0, 1)
+	} else {
+		// No color service - use default style
+		messageStyle = lipgloss.NewStyle()
+	}
+
 	// Handle multi-line messages by adding proper indentation to each line
 	textLines := strings.Split(highlightedText, "\n")
 	for i, line := range textLines {
@@ -460,7 +498,11 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
 			sb.WriteString("\n")
 		}
 		sb.WriteString(baseIndent)
-		sb.WriteString(line)
+		if m.userColorService != nil {
+			sb.WriteString(messageStyle.Render(line))
+		} else {
+			sb.WriteString(line)
+		}
 	}
 
 	sb.WriteString("\n")
@@ -528,10 +570,38 @@ func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent i
 	// Calculate base indentation for message text
 	baseIndent := "  " + strings.Repeat(" ", indent) + "   "
 
+	// Apply user-specific background color if colorService is available
+	var messageStyle lipgloss.Style
+	if m.userColorService != nil {
+		// Generate color from UserID
+		adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
+
+		// Select appropriate color based on terminal theme
+		var bgColor usercolor.Color
+		if m.isDarkBackground {
+			bgColor = adaptiveColor.Dark
+		} else {
+			bgColor = adaptiveColor.Light
+		}
+
+		// Create style with background color and contrasting foreground
+		messageStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color(bgColor.ToHex())).
+			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
+			Padding(0, 1)
+	} else {
+		// No color service - use default style
+		messageStyle = lipgloss.NewStyle()
+	}
+
 	// Handle multi-line messages by adding proper indentation to each line
 	textLines := strings.Split(highlightedText, "\n")
 	for _, line := range textLines {
-		lines = append(lines, baseIndent+line)
+		if m.userColorService != nil {
+			lines = append(lines, baseIndent+messageStyle.Render(line))
+		} else {
+			lines = append(lines, baseIndent+line)
+		}
 	}
 
 	// Add blank line after message

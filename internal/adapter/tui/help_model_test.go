@@ -53,10 +53,10 @@ func TestHelpModel_KeyBindings(t *testing.T) {
 
 	// Essential key bindings should be present
 	expectedBindings := []string{
-		"?", "F1",  // Help toggle
-		"Esc",      // Back/Cancel
-		"q",        // Quit
-		"Ctrl+C",   // Quit
+		"?", "F1", // Help toggle
+		"Esc",    // Back/Cancel
+		"q",      // Quit
+		"Ctrl+C", // Quit
 	}
 
 	for _, binding := range expectedBindings {

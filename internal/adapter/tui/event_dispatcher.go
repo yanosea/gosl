@@ -10,7 +10,7 @@ import (
 	"github.com/yanosea/gosl/internal/app/port"
 )
 
-type EventDispatcher struct{
+type EventDispatcher struct {
 	program *tea.Program
 	mu      sync.RWMutex
 	running bool

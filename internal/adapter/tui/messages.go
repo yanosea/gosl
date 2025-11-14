@@ -13,7 +13,7 @@ type SlackConnectedMsg struct{}
 
 func (m SlackConnectedMsg) slackEventMsg() {}
 
-type SlackDisconnectedMsg struct{
+type SlackDisconnectedMsg struct {
 	Reason string
 }
 
@@ -59,3 +59,8 @@ type ThreadLoadedMsg struct {
 type ThreadRefreshTickMsg struct{}
 
 type MessageRefreshTickMsg struct{}
+
+// BackgroundColorMsg carries terminal background theme detection result
+type BackgroundColorMsg struct {
+	IsDark bool
+}

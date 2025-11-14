@@ -77,10 +77,10 @@ func TestApplicationLifecycle(t *testing.T) {
 // TestConfigPathResolution tests XDG config path resolution
 func TestConfigPathResolution(t *testing.T) {
 	tests := []struct {
-		name        string
-		xdgConfig   string
-		home        string
-		expectPath  string
+		name       string
+		xdgConfig  string
+		home       string
+		expectPath string
 	}{
 		{
 			name:       "XDG_CONFIG_HOME set",

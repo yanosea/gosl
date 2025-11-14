@@ -501,7 +501,7 @@ func (m *MessageInputModel) filterMentionSuggestions(query string) []user.User {
 	for _, u := range m.mentionSuggestions {
 		nameLower := strings.ToLower(u.Name)
 		displayNameLower := strings.ToLower(u.DisplayName)
-		
+
 		if strings.Contains(nameLower, query) || strings.Contains(displayNameLower, query) {
 			filtered = append(filtered, u)
 		}

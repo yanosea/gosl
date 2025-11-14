@@ -15,9 +15,9 @@ import (
 var _ port.ConfigRepository = (*ConfigAdapter)(nil)
 
 const (
-	DefaultMessageLimit = 5
-	MinMessageLimit     = 1
-	MaxMessageLimit     = 100
+	DefaultMessageLimit  = 5
+	MinMessageLimit      = 1
+	MaxMessageLimit      = 100
 	ConfigFilePermission = 0600
 	ConfigDirPermission  = 0700
 )
