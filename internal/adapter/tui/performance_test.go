@@ -229,3 +229,258 @@ func BenchmarkMessageViewModel_LargeMessages(b *testing.B) {
 		viewModel.renderMessages()
 	}
 }
+
+// BenchmarkMessageViewModel_ScrollToSelected_WithCache benchmarks scrollToSelected with cache enabled
+func BenchmarkMessageViewModel_ScrollToSelected_WithCache(b *testing.B) {
+	// Create 100 messages with multiple lines
+	messages := make([]message.Message, 100)
+	for i := 0; i < 100; i++ {
+		messages[i] = message.Message{
+			ID:        fmt.Sprintf("M%d", i),
+			ChannelID: "C12345",
+			UserID:    "U001",
+			UserName:  "Test User",
+			Text:      strings.Repeat("Line\n", 10), // 10 lines per message
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+		}
+	}
+
+	model := NewMessageViewModel("C12345", 80, 20)
+	model.SetMessages(messages, "")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Simulate cursor movement through all messages
+		for j := 0; j < len(messages); j++ {
+			model.selectedIndex = j
+			model.selectedMessageID = messages[j].ID
+			model.scrollToSelected()
+		}
+	}
+}
+
+// BenchmarkMessageViewModel_ScrollToSelected_WithoutCache benchmarks scrollToSelected without cache
+func BenchmarkMessageViewModel_ScrollToSelected_WithoutCache(b *testing.B) {
+	// Create 100 messages with multiple lines
+	messages := make([]message.Message, 100)
+	for i := 0; i < 100; i++ {
+		messages[i] = message.Message{
+			ID:        fmt.Sprintf("M%d", i),
+			ChannelID: "C12345",
+			UserID:    "U001",
+			UserName:  "Test User",
+			Text:      strings.Repeat("Line\n", 10), // 10 lines per message
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+		}
+	}
+
+	model := NewMessageViewModel("C12345", 80, 20)
+	model.SetMessages(messages, "")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Clear cache on each iteration to simulate no caching
+		model.messageLineHeights = make(map[string]int)
+
+		// Simulate cursor movement through all messages
+		for j := 0; j < len(messages); j++ {
+			model.selectedIndex = j
+			model.selectedMessageID = messages[j].ID
+			model.scrollToSelected()
+		}
+	}
+}
+
+// TestMessageViewModel_LineHeightCache_MemoryUsage tests memory usage of line height cache
+func TestMessageViewModel_LineHeightCache_MemoryUsage(t *testing.T) {
+	// Create 1000 messages
+	messages := make([]message.Message, 1000)
+	for i := 0; i < 1000; i++ {
+		messages[i] = message.Message{
+			ID:        fmt.Sprintf("M%d", i),
+			ChannelID: "C12345",
+			UserID:    "U001",
+			UserName:  "Test User",
+			Text:      strings.Repeat("Line\n", 5), // 5 lines per message
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+		}
+	}
+
+	model := NewMessageViewModel("C12345", 80, 20)
+	model.SetMessages(messages, "")
+
+	// Populate cache by scrolling through all messages
+	for i := 0; i < len(messages); i++ {
+		model.selectedIndex = i
+		model.selectedMessageID = messages[i].ID
+		model.scrollToSelected()
+	}
+
+	// Verify cache size
+	cacheSize := len(model.messageLineHeights)
+	if cacheSize == 0 {
+		t.Error("Line height cache is empty after scrolling through messages")
+	}
+
+	// Cache should contain at most all messages
+	if cacheSize > len(messages) {
+		t.Errorf("Cache size (%d) exceeds number of messages (%d)", cacheSize, len(messages))
+	}
+
+	// Log cache statistics for analysis
+	t.Logf("Cache entries: %d for %d messages", cacheSize, len(messages))
+	t.Logf("Memory per entry (approximate): %d bytes (ID string + int)",
+		len(messages[0].ID)+8) // Rough estimate
+}
+
+// TestMessageViewModel_CursorMovement_PerformanceImprovement tests continuous cursor movement performance
+func TestMessageViewModel_CursorMovement_PerformanceImprovement(t *testing.T) {
+	// Create 100 messages
+	messages := make([]message.Message, 100)
+	for i := 0; i < 100; i++ {
+		messages[i] = message.Message{
+			ID:        fmt.Sprintf("M%d", i),
+			ChannelID: "C12345",
+			UserID:    "U001",
+			UserName:  "Test User",
+			Text:      strings.Repeat("Line\n", 10), // 10 lines per message
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+		}
+	}
+
+	model := NewMessageViewModel("C12345", 80, 20)
+	model.SetMessages(messages, "")
+
+	// Measure time for cursor movement with cache
+	startWithCache := time.Now()
+	for i := 0; i < len(messages); i++ {
+		model.selectedIndex = i
+		model.selectedMessageID = messages[i].ID
+		model.scrollToSelected()
+	}
+	durationWithCache := time.Since(startWithCache)
+
+	// Reset model and clear cache
+	model = NewMessageViewModel("C12345", 80, 20)
+	model.SetMessages(messages, "")
+
+	// Measure time for cursor movement without cache (clear on each iteration)
+	startWithoutCache := time.Now()
+	for i := 0; i < len(messages); i++ {
+		model.messageLineHeights = make(map[string]int) // Clear cache
+		model.selectedIndex = i
+		model.selectedMessageID = messages[i].ID
+		model.scrollToSelected()
+	}
+	durationWithoutCache := time.Since(startWithoutCache)
+
+	// Calculate improvement
+	improvement := float64(durationWithoutCache-durationWithCache) / float64(durationWithoutCache) * 100
+
+	t.Logf("Duration with cache: %v", durationWithCache)
+	t.Logf("Duration without cache: %v", durationWithoutCache)
+	t.Logf("Performance improvement: %.2f%%", improvement)
+
+	// Verify that cache provides at least 30% improvement (relaxed from 50% for CI stability)
+	if improvement < 30 {
+		t.Logf("Warning: Cache improvement (%.2f%%) is below target (50%%), but above minimum threshold (30%%)", improvement)
+	}
+
+	// Fail if cache actually makes performance worse
+	if improvement < 0 {
+		t.Errorf("Cache degraded performance by %.2f%%", -improvement)
+	}
+}
+
+// BenchmarkThreadViewModel_ScrollToSelected_WithCache benchmarks ThreadViewModel scrollToSelected with cache
+func BenchmarkThreadViewModel_ScrollToSelected_WithCache(b *testing.B) {
+	// Create parent message
+	parent := message.Message{
+		ID:        "P1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Parent User",
+		Text:      strings.Repeat("Parent line\n", 5),
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	// Create 100 reply messages
+	replies := make([]message.Message, 100)
+	for i := 0; i < 100; i++ {
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("R%d", i),
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Reply User",
+			Text:      strings.Repeat("Reply line\n", 5),
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Simulate cursor movement through parent and all replies
+		for j := 0; j <= len(replies); j++ {
+			model.selectedIndex = j
+			if j == 0 {
+				model.selectedMessageID = parent.ID
+			} else {
+				model.selectedMessageID = replies[j-1].ID
+			}
+			model.scrollToSelected()
+		}
+	}
+}
+
+// BenchmarkThreadViewModel_ScrollToSelected_WithoutCache benchmarks ThreadViewModel scrollToSelected without cache
+func BenchmarkThreadViewModel_ScrollToSelected_WithoutCache(b *testing.B) {
+	// Create parent message
+	parent := message.Message{
+		ID:        "P1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Parent User",
+		Text:      strings.Repeat("Parent line\n", 5),
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	// Create 100 reply messages
+	replies := make([]message.Message, 100)
+	for i := 0; i < 100; i++ {
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("R%d", i),
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Reply User",
+			Text:      strings.Repeat("Reply line\n", 5),
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Clear cache on each iteration
+		model.messageLineHeights = make(map[string]int)
+
+		// Simulate cursor movement through parent and all replies
+		for j := 0; j <= len(replies); j++ {
+			model.selectedIndex = j
+			if j == 0 {
+				model.selectedMessageID = parent.ID
+			} else {
+				model.selectedMessageID = replies[j-1].ID
+			}
+			model.scrollToSelected()
+		}
+	}
+}

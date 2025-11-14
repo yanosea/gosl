@@ -21,22 +21,23 @@ const (
 )
 
 type MessageViewModel struct {
-	viewport          viewport.Model
-	messages          []message.Message
-	selectedIndex     int
-	selectedMessageID string
-	channelID         string
-	nextCursor        string
-	width             int
-	height            int
-	renderCache       *RenderCache
-	stringBuilders    *StringBuilderPool
-	isInitialized     bool
-	inputArea         textarea.Model
-	inputFocused      bool
-	sender            MessageSender
-	isDarkBackground  bool
-	userColorService  usercolor.Service
+	viewport           viewport.Model
+	messages           []message.Message
+	selectedIndex      int
+	selectedMessageID  string
+	channelID          string
+	nextCursor         string
+	width              int
+	height             int
+	renderCache        *RenderCache
+	stringBuilders     *StringBuilderPool
+	messageLineHeights map[string]int // NEW: Line height cache for scroll position calculation
+	isInitialized      bool
+	inputArea          textarea.Model
+	inputFocused       bool
+	sender             MessageSender
+	isDarkBackground   bool
+	userColorService   usercolor.Service
 }
 
 func NewMessageViewModel(channelID string, width, height int) MessageViewModel {
@@ -68,19 +69,20 @@ func NewMessageViewModelWithColorService(channelID string, width, height int, se
 	ta.Blur() // Start with viewport focused
 
 	return MessageViewModel{
-		viewport:         vp,
-		messages:         []message.Message{},
-		selectedIndex:    0,
-		channelID:        channelID,
-		nextCursor:       "",
-		width:            width,
-		height:           height,
-		renderCache:      NewRenderCache(),
-		stringBuilders:   NewStringBuilderPool(),
-		inputArea:        ta,
-		inputFocused:     false,
-		sender:           sender,
-		userColorService: colorService,
+		viewport:           vp,
+		messages:           []message.Message{},
+		selectedIndex:      0,
+		channelID:          channelID,
+		nextCursor:         "",
+		width:              width,
+		height:             height,
+		renderCache:        NewRenderCache(),
+		stringBuilders:     NewStringBuilderPool(),
+		messageLineHeights: make(map[string]int), // Initialize line height cache
+		inputArea:          ta,
+		inputFocused:       false,
+		sender:             sender,
+		userColorService:   colorService,
 	}
 }
 
@@ -178,11 +180,13 @@ func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) {
 		case "pgup", "ctrl+u":
 			// Scroll up in viewport
 			m.viewport.ViewUp()
+			m.scrollToSelected()
 			return m, nil
 
 		case "pgdown", "ctrl+d":
 			// Scroll down in viewport
 			m.viewport.ViewDown()
+			m.scrollToSelected()
 			return m, nil
 		}
 
@@ -192,6 +196,7 @@ func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) {
 		return m, nil
 
 	case tea.WindowSizeMsg:
+		oldWidth := m.width
 		m.width = msg.Width
 		m.height = msg.Height
 
@@ -207,6 +212,12 @@ func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) {
 		m.viewport.Height = viewportHeight
 		m.inputArea.SetWidth(msg.Width - 4)
 		m.inputArea.SetHeight(inputHeight)
+
+		// Clear cache if width changed (lipgloss rendering may differ)
+		if oldWidth != m.width {
+			m.messageLineHeights = make(map[string]int)
+		}
+
 		m.viewport.SetContent(m.renderMessages())
 		return m, nil
 
@@ -341,6 +352,9 @@ func (m *MessageViewModel) SetMessages(messages []message.Message, cursor string
 	m.messages = messages
 	m.nextCursor = cursor
 
+	// Clear line heights cache (messages replaced)
+	m.messageLineHeights = make(map[string]int)
+
 	if isFirstLoad {
 		if len(m.messages) > 0 {
 			m.selectedIndex = len(m.messages) - 1
@@ -387,7 +401,16 @@ func (m *MessageViewModel) AppendMessages(messages []message.Message, cursor str
 }
 
 func (m *MessageViewModel) AddNewMessage(msg message.Message) {
+	// Check if cursor is at the last message before adding new message
+	wasAtLatest := len(m.messages) > 0 && m.selectedIndex == len(m.messages)-1
+
 	m.messages = append(m.messages, msg)
+
+	// If cursor was at latest message, move it to the new latest message
+	if wasAtLatest {
+		m.selectedIndex = len(m.messages) - 1
+		m.scrollToSelected()
+	}
 }
 
 func (m *MessageViewModel) renderMessages() string {
@@ -619,40 +642,72 @@ func isAlphanumeric(b byte) bool {
 }
 
 func (m *MessageViewModel) scrollToSelected() {
+	// 1. Early return for empty messages
 	if len(m.messages) == 0 {
 		return
 	}
 
-	selectedLineStart := 0
-
-	sb := m.stringBuilders.Get()
-	defer m.stringBuilders.Put(sb)
-
-	for i, msg := range m.messages {
-		msgSB := m.stringBuilders.Get()
-		isSelected := i == m.selectedIndex
-		m.renderMessage(msgSB, msg, isSelected)
-		msgSB.WriteString("\n")
-		rendered := msgSB.String()
-		m.stringBuilders.Put(msgSB)
-
-		lineCount := strings.Count(rendered, "\n")
-
-		if i < m.selectedIndex {
-			selectedLineStart += lineCount
-		} else if i == m.selectedIndex {
-			break
-		}
+	// 2. Get or calculate selected message height
+	selectedMessageHeight, ok := m.messageLineHeights[m.selectedMessageID]
+	if !ok {
+		// Cache miss: render message and count lines
+		sb := m.stringBuilders.Get()
+		defer m.stringBuilders.Put(sb)
+		m.renderMessage(sb, m.messages[m.selectedIndex], true)
+		sb.WriteString("\n")
+		rendered := sb.String()
+		selectedMessageHeight = strings.Count(rendered, "\n")
+		m.messageLineHeights[m.selectedMessageID] = selectedMessageHeight
 	}
 
+	// 3. Calculate selected message line start position
+	selectedLineStart := 0
+	for i := 0; i < m.selectedIndex; i++ {
+		msgHeight, ok := m.messageLineHeights[m.messages[i].ID]
+		if !ok {
+			// Cache miss: render and calculate line height
+			msgSB := m.stringBuilders.Get()
+			m.renderMessage(msgSB, m.messages[i], false)
+			msgSB.WriteString("\n")
+			rendered := msgSB.String()
+			msgHeight = strings.Count(rendered, "\n")
+			m.messageLineHeights[m.messages[i].ID] = msgHeight
+			m.stringBuilders.Put(msgSB)
+		}
+		selectedLineStart += msgHeight
+	}
+
+	// 4. Check if cursor is already visible
+	currentOffset := m.viewport.YOffset
 	viewportHeight := m.viewport.Height
 
-	desiredOffset := selectedLineStart - (viewportHeight / 3)
+	if selectedLineStart >= currentOffset &&
+		selectedLineStart+selectedMessageHeight <= currentOffset+viewportHeight {
+		return // No scroll needed
+	}
 
+	// 5. Calculate desired scroll offset based on message height
+	var desiredOffset int
+	if selectedMessageHeight <= viewportHeight {
+		// Message fits in viewport - ensure entire message is visible
+		if selectedLineStart+selectedMessageHeight > currentOffset+viewportHeight {
+			// Message bottom is below viewport bottom
+			desiredOffset = selectedLineStart + selectedMessageHeight - viewportHeight
+		} else {
+			// Message top is above viewport top
+			desiredOffset = selectedLineStart
+		}
+	} else {
+		// Message is taller than viewport - align to top
+		desiredOffset = selectedLineStart
+	}
+
+	// 6. Apply bounds checking
 	if desiredOffset < 0 {
 		desiredOffset = 0
 	}
 
+	// 7. Set scroll offset
 	m.viewport.SetYOffset(desiredOffset)
 }
 

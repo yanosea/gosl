@@ -17,22 +17,23 @@ import (
 
 // ThreadViewModel manages the thread view for displaying parent message and replies.
 type ThreadViewModel struct {
-	viewport          viewport.Model
-	parentMessage     message.Message
-	replies           []message.Message
-	selectedIndex     int
-	selectedMessageID string
-	channelID         string
-	threadTS          string
-	width             int
-	height            int
-	viewportHeight    int
-	scrollOffset      int
-	inputArea         textarea.Model
-	inputFocused      bool
-	sender            MessageSender
-	isDarkBackground  bool
-	userColorService  usercolor.Service
+	viewport           viewport.Model
+	parentMessage      message.Message
+	replies            []message.Message
+	selectedIndex      int
+	selectedMessageID  string
+	channelID          string
+	threadTS           string
+	width              int
+	height             int
+	viewportHeight     int
+	scrollOffset       int
+	messageLineHeights map[string]int // NEW: Line height cache for scroll position calculation
+	inputArea          textarea.Model
+	inputFocused       bool
+	sender             MessageSender
+	isDarkBackground   bool
+	userColorService   usercolor.Service
 }
 
 // NewThreadViewModel creates a new ThreadViewModel instance.
@@ -67,20 +68,21 @@ func NewThreadViewModelWithColorService(channelID, threadTS string, width, heigh
 	ta.Blur() // Start with viewport focused
 
 	return ThreadViewModel{
-		viewport:         vp,
-		parentMessage:    message.Message{},
-		replies:          []message.Message{},
-		selectedIndex:    0,
-		channelID:        channelID,
-		threadTS:         threadTS,
-		width:            width,
-		height:           height,
-		viewportHeight:   viewportHeight,
-		scrollOffset:     0,
-		inputArea:        ta,
-		inputFocused:     false,
-		sender:           sender,
-		userColorService: colorService,
+		viewport:           vp,
+		parentMessage:      message.Message{},
+		replies:            []message.Message{},
+		selectedIndex:      0,
+		channelID:          channelID,
+		threadTS:           threadTS,
+		width:              width,
+		height:             height,
+		viewportHeight:     viewportHeight,
+		scrollOffset:       0,
+		messageLineHeights: make(map[string]int), // Initialize line height cache
+		inputArea:          ta,
+		inputFocused:       false,
+		sender:             sender,
+		userColorService:   colorService,
 	}
 }
 
@@ -184,11 +186,13 @@ func (m ThreadViewModel) Update(msg tea.Msg) (ThreadViewModel, tea.Cmd) {
 		case "pgup", "ctrl+u":
 			// Scroll up in viewport
 			m.viewport.ViewUp()
+			m.scrollToSelected()
 			return m, nil
 
 		case "pgdown", "ctrl+d":
 			// Scroll down in viewport
 			m.viewport.ViewDown()
+			m.scrollToSelected()
 			return m, nil
 		}
 
@@ -198,6 +202,11 @@ func (m ThreadViewModel) Update(msg tea.Msg) (ThreadViewModel, tea.Cmd) {
 		return m, nil
 
 	case tea.WindowSizeMsg:
+		// Clear line height cache if width changed (affects rendering)
+		if m.width != msg.Width {
+			m.messageLineHeights = make(map[string]int)
+		}
+
 		m.width = msg.Width
 		m.height = msg.Height
 
@@ -348,6 +357,9 @@ func (m ThreadViewModel) View() string {
 
 // SetThread sets the parent message and replies for the thread view.
 func (m *ThreadViewModel) SetThread(parent message.Message, replies []message.Message) {
+	// Clear line height cache (new parent/replies invalidate all cached heights)
+	m.messageLineHeights = make(map[string]int)
+
 	prevSelectedMsgID := m.selectedMessageID
 	isFirstLoad := m.selectedMessageID == ""
 	wasAtLatest := false
@@ -408,7 +420,114 @@ func (m *ThreadViewModel) SetThread(parent message.Message, replies []message.Me
 
 // AddReply adds a new reply to the thread (real-time update).
 func (m *ThreadViewModel) AddReply(reply message.Message) {
+	// Check if cursor is at the last reply before adding new reply
+	// In ThreadViewModel, index 0 is parent, so last reply is len(m.replies)
+	wasAtLatestReply := len(m.replies) > 0 && m.selectedIndex == len(m.replies)
+
 	m.replies = append(m.replies, reply)
+
+	// If cursor was at latest reply, move it to the new latest reply
+	if wasAtLatestReply {
+		m.selectedIndex = len(m.replies) // parent (0) + replies count
+		m.scrollToSelected()
+	}
+}
+
+// scrollToSelected adjusts the viewport scroll position to keep the selected message visible.
+func (m *ThreadViewModel) scrollToSelected() {
+	// 1. Early return for empty thread
+	if m.parentMessage.ID == "" {
+		return
+	}
+
+	// 2. If parent is selected (selectedIndex == 0), scroll to top
+	if m.selectedIndex == 0 {
+		m.viewport.SetYOffset(0)
+		return
+	}
+
+	// 3. Get or calculate parent message height
+	parentHeight, ok := m.messageLineHeights[m.parentMessage.ID]
+	if !ok {
+		// Cache miss: render parent and count lines
+		var sb strings.Builder
+		m.renderThreadMessage(&sb, m.parentMessage, 0, 0)
+		sb.WriteString("\n")
+		rendered := sb.String()
+		parentHeight = strings.Count(rendered, "\n")
+		m.messageLineHeights[m.parentMessage.ID] = parentHeight
+	}
+
+	// 4. Calculate selected reply line start position
+	selectedLineStart := parentHeight
+	replyIndex := m.selectedIndex - 1 // Adjust for parent at index 0
+
+	for i := 0; i < replyIndex; i++ {
+		if i >= len(m.replies) {
+			break
+		}
+		replyHeight, ok := m.messageLineHeights[m.replies[i].ID]
+		if !ok {
+			// Cache miss: render and calculate line height
+			var replySB strings.Builder
+			m.renderThreadMessage(&replySB, m.replies[i], 2, i+1)
+			replySB.WriteString("\n")
+			rendered := replySB.String()
+			replyHeight = strings.Count(rendered, "\n")
+			m.messageLineHeights[m.replies[i].ID] = replyHeight
+		}
+		selectedLineStart += replyHeight
+	}
+
+	// 5. Get or calculate selected reply height
+	if replyIndex >= len(m.replies) {
+		return
+	}
+	selectedReply := m.replies[replyIndex]
+	selectedReplyHeight, ok := m.messageLineHeights[selectedReply.ID]
+	if !ok {
+		// Cache miss: render and calculate
+		var sb strings.Builder
+		m.renderThreadMessage(&sb, selectedReply, 2, m.selectedIndex)
+		sb.WriteString("\n")
+		rendered := sb.String()
+		selectedReplyHeight = strings.Count(rendered, "\n")
+		m.messageLineHeights[selectedReply.ID] = selectedReplyHeight
+	}
+
+	// 6. Calculate desired scroll offset based on reply height
+	currentOffset := m.viewport.YOffset
+	viewportHeight := m.viewport.Height
+
+	// Check if cursor is already visible
+	if selectedLineStart >= currentOffset &&
+		selectedLineStart+selectedReplyHeight <= currentOffset+viewportHeight {
+		return // No scroll needed
+	}
+
+	// Calculate scroll position
+	var desiredOffset int
+	if selectedReplyHeight <= viewportHeight {
+		// Reply fits in viewport - ensure entire reply is visible
+		if selectedLineStart+selectedReplyHeight > currentOffset+viewportHeight {
+			// Reply bottom is below viewport bottom
+			desiredOffset = selectedLineStart + selectedReplyHeight - viewportHeight
+		} else {
+			// Reply top is above viewport top
+			desiredOffset = selectedLineStart
+		}
+	} else {
+		// Reply is taller than viewport - align to top
+		desiredOffset = selectedLineStart
+	}
+
+	// 7. Apply bounds checking
+	if desiredOffset < 0 {
+		desiredOffset = 0
+	}
+
+	// 8. Set scroll offset
+	m.viewport.SetYOffset(desiredOffset)
 }
 
 // renderThreadMessage renders a single message to the StringBuilder.
@@ -701,38 +820,6 @@ func (m *ThreadViewModel) getAllThreadLines() []string {
 	}
 
 	return lines
-}
-
-// scrollToSelected scrolls the viewport to ensure the selected message is visible.
-func (m *ThreadViewModel) scrollToSelected() {
-	selectedLineStart := 0
-
-	var sb strings.Builder
-
-	// Count lines for parent message (index 0)
-	if m.selectedIndex > 0 {
-		m.renderThreadMessage(&sb, m.parentMessage, 0, 0)
-		sb.WriteString("\n")
-		selectedLineStart += strings.Count(sb.String(), "\n")
-		sb.Reset()
-	}
-
-	// Count lines for replies before selected
-	for i := 0; i < m.selectedIndex-1 && i < len(m.replies); i++ {
-		m.renderThreadMessage(&sb, m.replies[i], 2, i+1)
-		sb.WriteString("\n")
-		selectedLineStart += strings.Count(sb.String(), "\n")
-		sb.Reset()
-	}
-
-	viewportHeight := m.viewport.Height
-	desiredOffset := selectedLineStart - (viewportHeight / 3)
-
-	if desiredOffset < 0 {
-		desiredOffset = 0
-	}
-
-	m.viewport.SetYOffset(desiredOffset)
 }
 
 // getVisibleLines returns the subset of lines that should be visible based on scroll offset.

@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -654,5 +655,830 @@ func TestThreadViewModel_RenderThreadMessageLinesIsDarkBackground(t *testing.T) 
 				t.Error("Expected styled message with padding")
 			}
 		})
+	}
+}
+
+// TestThreadViewModel_LineHeightCacheInitialization tests that line height cache is initialized
+func TestThreadViewModel_LineHeightCacheInitialization(t *testing.T) {
+	tests := []struct {
+		name      string
+		channelID string
+		threadTS  string
+		width     int
+		height    int
+	}{
+		{
+			name:      "NewThreadViewModel initializes line height cache",
+			channelID: "C12345",
+			threadTS:  "1234567890.123456",
+			width:     80,
+			height:    24,
+		},
+		{
+			name:      "NewThreadViewModelWithSender initializes line height cache",
+			channelID: "C67890",
+			threadTS:  "9876543210.654321",
+			width:     100,
+			height:    30,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var model ThreadViewModel
+
+			// Test different constructors
+			if strings.Contains(tt.name, "WithSender") {
+				model = NewThreadViewModelWithSender(tt.channelID, tt.threadTS, tt.width, tt.height, nil)
+			} else {
+				model = NewThreadViewModel(tt.channelID, tt.threadTS, tt.width, tt.height)
+			}
+
+			// Verify that messageLineHeights is initialized (not nil)
+			if model.messageLineHeights == nil {
+				t.Error("messageLineHeights should be initialized, got nil")
+			}
+
+			// Verify that messageLineHeights is empty on initialization
+			if len(model.messageLineHeights) != 0 {
+				t.Errorf("messageLineHeights should be empty on initialization, got %d entries", len(model.messageLineHeights))
+			}
+		})
+	}
+}
+
+// TestThreadViewModel_SetThread_ClearLineHeightCache tests that SetThread clears the line height cache
+func TestThreadViewModel_SetThread_ClearLineHeightCache(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+
+	// Add some dummy entries to the cache
+	model.messageLineHeights["M1"] = 5
+	model.messageLineHeights["R1"] = 10
+
+	if len(model.messageLineHeights) != 2 {
+		t.Errorf("Expected 2 cache entries before SetThread, got %d", len(model.messageLineHeights))
+	}
+
+	// Call SetThread
+	parentMsg := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Alice",
+		Text:      "Parent message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+	replies := []message.Message{
+		{
+			ID:        "R1",
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Bob",
+			Text:      "Reply 1",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		},
+	}
+	model.SetThread(parentMsg, replies)
+
+	// Verify that cache was cleared
+	if len(model.messageLineHeights) != 0 {
+		t.Errorf("Expected cache to be cleared after SetThread, got %d entries", len(model.messageLineHeights))
+	}
+}
+
+// TestThreadViewModel_AddReply_PreserveLineHeightCache tests that AddReply preserves the line height cache
+func TestThreadViewModel_AddReply_PreserveLineHeightCache(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+
+	// Set initial thread
+	parentMsg := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Alice",
+		Text:      "Parent message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+	replies := []message.Message{
+		{
+			ID:        "R1",
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Bob",
+			Text:      "Reply 1",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		},
+	}
+	model.SetThread(parentMsg, replies)
+
+	// Move cursor to parent message (not at latest reply)
+	model.selectedIndex = 0
+	model.selectedMessageID = parentMsg.ID
+
+	// Add cache entries for existing messages
+	model.messageLineHeights["M1"] = 5
+	model.messageLineHeights["R1"] = 10
+
+	if len(model.messageLineHeights) != 2 {
+		t.Errorf("Expected 2 cache entries before AddReply, got %d", len(model.messageLineHeights))
+	}
+
+	// Add a new reply
+	newReply := message.Message{
+		ID:        "R2",
+		ChannelID: "C12345",
+		UserID:    "U003",
+		UserName:  "Charlie",
+		Text:      "Reply 2",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+	model.AddReply(newReply)
+
+	// Verify that existing cache was preserved
+	if len(model.messageLineHeights) != 2 {
+		t.Errorf("Expected cache to be preserved after AddReply, got %d entries", len(model.messageLineHeights))
+	}
+
+	if model.messageLineHeights["M1"] != 5 {
+		t.Errorf("Expected M1 cache entry to be preserved with value 5, got %d", model.messageLineHeights["M1"])
+	}
+
+	if model.messageLineHeights["R1"] != 10 {
+		t.Errorf("Expected R1 cache entry to be preserved with value 10, got %d", model.messageLineHeights["R1"])
+	}
+}
+
+// TestThreadViewModel_WindowSizeMsg_ClearCacheOnWidthChange tests cache invalidation on width change
+func TestThreadViewModel_WindowSizeMsg_ClearCacheOnWidthChange(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+
+	// Add cache entries
+	model.messageLineHeights["M1"] = 5
+	model.messageLineHeights["R1"] = 10
+
+	if len(model.messageLineHeights) != 2 {
+		t.Errorf("Expected 2 cache entries before WindowSizeMsg, got %d", len(model.messageLineHeights))
+	}
+
+	// Send WindowSizeMsg with different width
+	msg := tea.WindowSizeMsg{Width: 100, Height: 30}
+	updatedModel, _ := model.Update(msg)
+
+	// Verify that cache was cleared due to width change
+	if len(updatedModel.messageLineHeights) != 0 {
+		t.Errorf("Expected cache to be cleared after width change, got %d entries", len(updatedModel.messageLineHeights))
+	}
+}
+
+// TestThreadViewModel_WindowSizeMsg_PreserveCacheOnHeightChange tests cache preservation on height-only change
+func TestThreadViewModel_WindowSizeMsg_PreserveCacheOnHeightChange(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+
+	// Add cache entries
+	model.messageLineHeights["M1"] = 5
+	model.messageLineHeights["R1"] = 10
+
+	if len(model.messageLineHeights) != 2 {
+		t.Errorf("Expected 2 cache entries before WindowSizeMsg, got %d", len(model.messageLineHeights))
+	}
+
+	// Send WindowSizeMsg with same width but different height
+	msg := tea.WindowSizeMsg{Width: 80, Height: 30}
+	updatedModel, _ := model.Update(msg)
+
+	// Verify that cache was preserved (height change doesn't affect rendering width)
+	if len(updatedModel.messageLineHeights) != 2 {
+		t.Errorf("Expected cache to be preserved after height-only change, got %d entries", len(updatedModel.messageLineHeights))
+	}
+
+	if updatedModel.messageLineHeights["M1"] != 5 {
+		t.Errorf("Expected M1 cache entry to be preserved with value 5, got %d", updatedModel.messageLineHeights["M1"])
+	}
+}
+
+// TestThreadViewModel_scrollToSelected_EmptyThread tests early return for empty thread
+func TestThreadViewModel_scrollToSelected_EmptyThread(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+
+	// No parent or replies set - scrollToSelected should handle gracefully
+	model.scrollToSelected()
+
+	// Verify viewport offset is still 0 (no panic, no changes)
+	if model.viewport.YOffset != 0 {
+		t.Errorf("Expected YOffset to remain 0 for empty thread, got %d", model.viewport.YOffset)
+	}
+}
+
+// TestThreadViewModel_scrollToSelected_ParentSelected tests parent message selection
+func TestThreadViewModel_scrollToSelected_ParentSelected(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+
+	// Set thread with parent and replies
+	parentMsg := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Alice",
+		Text:      "Parent message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+	replies := []message.Message{
+		{
+			ID:        "R1",
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Bob",
+			Text:      "Reply 1",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		},
+	}
+	model.SetThread(parentMsg, replies)
+
+	// Select parent message (selectedIndex == 0)
+	model.selectedIndex = 0
+	model.selectedMessageID = "M1"
+
+	// Call scrollToSelected
+	model.scrollToSelected()
+
+	// Verify offset is at top (parent should be visible at top)
+	if model.viewport.YOffset != 0 {
+		t.Errorf("Expected YOffset to be 0 for parent selection, got %d", model.viewport.YOffset)
+	}
+}
+
+// TestThreadViewModel_scrollToSelected_CacheHit tests cache utilization
+func TestThreadViewModel_scrollToSelected_CacheHit(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+
+	// Set thread
+	parentMsg := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Alice",
+		Text:      "Parent message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+	replies := []message.Message{
+		{
+			ID:        "R1",
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Bob",
+			Text:      "Reply 1",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		},
+	}
+	model.SetThread(parentMsg, replies)
+
+	// Manually set cache entries
+	model.messageLineHeights["M1"] = 3
+	model.messageLineHeights["R1"] = 4
+
+	// Select first reply
+	model.selectedIndex = 1
+	model.selectedMessageID = "R1"
+
+	// Call scrollToSelected
+	model.scrollToSelected()
+
+	// Verify cache was used (no new entries should be added)
+	if len(model.messageLineHeights) != 2 {
+		t.Errorf("Expected 2 cached entries after scrollToSelected, got %d", len(model.messageLineHeights))
+	}
+
+	// Verify cache values are unchanged
+	if model.messageLineHeights["M1"] != 3 {
+		t.Errorf("Expected M1 cache entry to remain 3, got %d", model.messageLineHeights["M1"])
+	}
+	if model.messageLineHeights["R1"] != 4 {
+		t.Errorf("Expected R1 cache entry to remain 4, got %d", model.messageLineHeights["R1"])
+	}
+}
+
+// TestThreadViewModel_scrollToSelected_CacheMiss tests cache population
+func TestThreadViewModel_scrollToSelected_CacheMiss(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+
+	// Set thread
+	parentMsg := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Alice",
+		Text:      "Parent message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+	replies := []message.Message{
+		{
+			ID:        "R1",
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Bob",
+			Text:      "Reply 1",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		},
+	}
+	model.SetThread(parentMsg, replies)
+
+	// Select first reply
+	model.selectedIndex = 1
+	model.selectedMessageID = "R1"
+
+	// Verify cache is empty after SetThread
+	if len(model.messageLineHeights) != 0 {
+		t.Errorf("Expected empty cache after SetThread, got %d entries", len(model.messageLineHeights))
+	}
+
+	// Call scrollToSelected
+	model.scrollToSelected()
+
+	// Verify cache was populated
+	if len(model.messageLineHeights) == 0 {
+		t.Error("Expected cache to be populated after scrollToSelected, but it's empty")
+	}
+
+	// Verify that M1 and R1 are cached
+	if _, found := model.messageLineHeights["M1"]; !found {
+		t.Error("Expected M1 to be cached after scrollToSelected")
+	}
+	if _, found := model.messageLineHeights["R1"]; !found {
+		t.Error("Expected R1 to be cached after scrollToSelected")
+	}
+
+	// Verify that cached line heights are positive
+	if model.messageLineHeights["M1"] <= 0 {
+		t.Errorf("Expected positive line height for M1, got %d", model.messageLineHeights["M1"])
+	}
+	if model.messageLineHeights["R1"] <= 0 {
+		t.Errorf("Expected positive line height for R1, got %d", model.messageLineHeights["R1"])
+	}
+}
+
+// TestThreadViewModel_Update_PagingOperations tests paging operations call scrollToSelected
+func TestThreadViewModel_Update_PagingOperations(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{"PageUp", "pgup"},
+		{"PageDown", "pgdown"},
+		{"Ctrl+U", "ctrl+u"},
+		{"Ctrl+D", "ctrl+d"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewThreadViewModel("C12345", "1234567890.123456", 80, 24)
+
+			// Set thread
+			parentMsg := message.Message{
+				ID:        "M1",
+				ChannelID: "C12345",
+				UserID:    "U001",
+				UserName:  "Alice",
+				Text:      "Parent message",
+				Timestamp: time.Now(),
+				ThreadTS:  "1234567890.123456",
+			}
+			replies := []message.Message{
+				{
+					ID:        "R1",
+					ChannelID: "C12345",
+					UserID:    "U002",
+					UserName:  "Bob",
+					Text:      "Reply 1",
+					Timestamp: time.Now(),
+					ThreadTS:  "1234567890.123456",
+				},
+			}
+			model.SetThread(parentMsg, replies)
+
+			// Select parent
+			model.selectedIndex = 0
+			model.selectedMessageID = "M1"
+
+			// Send paging key
+			msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)}
+			if tt.key == "pgup" {
+				msg = tea.KeyMsg{Type: tea.KeyPgUp}
+			} else if tt.key == "pgdown" {
+				msg = tea.KeyMsg{Type: tea.KeyPgDown}
+			}
+
+			updatedModel, _ := model.Update(msg)
+
+			// Verify that the model was updated (scrollToSelected was called)
+			// Note: We can't directly verify scrollToSelected was called,
+			// but we can ensure no panic occurred and model is valid
+			if updatedModel.parentMessage.ID != "M1" {
+				t.Errorf("Expected parent message M1 after paging, got %s", updatedModel.parentMessage.ID)
+			}
+		})
+	}
+}
+
+// TestThreadViewModel_CursorMovement_Integration tests cursor movement operations with scroll adjustment
+func TestThreadViewModel_CursorMovement_Integration(t *testing.T) {
+	// Create parent message
+	parent := message.Message{
+		ID:        "P1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Parent User",
+		Text:      "Parent line1\nParent line2\nParent line3",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	// Create 10 reply messages with multiple lines each
+	replies := make([]message.Message, 10)
+	for i := 0; i < 10; i++ {
+		replies[i] = message.Message{
+			ID:        string(rune('R') + rune(i)),
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Reply User",
+			Text:      "Reply line1\nReply line2\nReply line3",
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+
+	// Test 1: 'k' key moves cursor up from initial position (starts at last reply)
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+	// SetThread sets selectedIndex to len(replies) = 10 on first load (last reply)
+	if model.selectedIndex != 10 {
+		t.Fatalf("expected initial selectedIndex=10 (last reply), got %d", model.selectedIndex)
+	}
+	updatedModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	if updatedModel.selectedIndex != 9 {
+		t.Errorf("expected selectedIndex=9 after 'k', got %d", updatedModel.selectedIndex)
+	}
+
+	// Test 2: 'g' key moves to top (parent)
+	model = NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if updatedModel.selectedIndex != 0 {
+		t.Errorf("expected selectedIndex=0 (parent) after 'g', got %d", updatedModel.selectedIndex)
+	}
+	// Verify scroll position is at top when parent is selected
+	if updatedModel.viewport.YOffset != 0 {
+		t.Errorf("expected YOffset=0 when parent is selected, got %d", updatedModel.viewport.YOffset)
+	}
+
+	// Test 3: 'j' key moves cursor from parent to first reply
+	model = NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+	// Move to parent first
+	model.selectedIndex = 0
+	model.selectedMessageID = parent.ID
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if updatedModel.selectedIndex != 1 {
+		t.Errorf("expected selectedIndex=1 (first reply) after 'j', got %d", updatedModel.selectedIndex)
+	}
+
+	// Test 4: Arrow down (↓) moves between replies
+	model = NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+	model.selectedIndex = 2
+	model.selectedMessageID = replies[1].ID
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if updatedModel.selectedIndex != 3 {
+		t.Errorf("expected selectedIndex=3 after ↓, got %d", updatedModel.selectedIndex)
+	}
+
+	// Test 5: 'G' key moves to bottom (last reply)
+	model = NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+	model.selectedIndex = 0
+	model.selectedMessageID = parent.ID
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	expectedLastIndex := len(replies) // parent(0) + replies
+	if updatedModel.selectedIndex != expectedLastIndex {
+		t.Errorf("expected selectedIndex=%d after 'G', got %d", expectedLastIndex, updatedModel.selectedIndex)
+	}
+}
+
+// TestThreadViewModel_Paging_Integration tests paging operations with cursor visibility
+func TestThreadViewModel_Paging_Integration(t *testing.T) {
+	// Create parent message with many lines
+	parent := message.Message{
+		ID:        "P1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Parent User",
+		Text:      "Parent line1\nParent line2\nParent line3\nParent line4\nParent line5",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	// Create 20 reply messages
+	replies := make([]message.Message, 20)
+	for i := 0; i < 20; i++ {
+		replies[i] = message.Message{
+			ID:        string(rune('R') + rune(i)),
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Reply User",
+			Text:      "Reply line1\nReply line2\nReply line3",
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+
+	// Test 1: PgDown triggers scroll adjustment
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 15)
+	model.SetThread(parent, replies)
+	updatedModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+
+	// Verify no panic occurred and model is valid
+	if updatedModel.parentMessage.ID != "P1" {
+		t.Errorf("expected parent message P1 after PgDown, got %s", updatedModel.parentMessage.ID)
+	}
+	if len(updatedModel.replies) != 20 {
+		t.Errorf("expected 20 replies after PgDown, got %d", len(updatedModel.replies))
+	}
+
+	// Test 2: Ctrl+D (half page down) triggers scroll adjustment
+	model = NewThreadViewModel("C12345", "1234567890.123456", 80, 15)
+	model.SetThread(parent, replies)
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+
+	// Verify no panic occurred
+	if len(updatedModel.replies) != 20 {
+		t.Errorf("expected 20 replies after Ctrl+D, got %d", len(updatedModel.replies))
+	}
+
+	// Test 3: PgUp triggers scroll adjustment
+	model = NewThreadViewModel("C12345", "1234567890.123456", 80, 15)
+	model.SetThread(parent, replies)
+	model.selectedIndex = 10
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+
+	// Verify no panic occurred
+	if updatedModel.parentMessage.ID != "P1" {
+		t.Errorf("expected parent message P1 after PgUp, got %s", updatedModel.parentMessage.ID)
+	}
+
+	// Test 4: Ctrl+U (half page up) triggers scroll adjustment
+	model = NewThreadViewModel("C12345", "1234567890.123456", 80, 15)
+	model.SetThread(parent, replies)
+	model.selectedIndex = 10
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+
+	// Verify no panic occurred
+	if updatedModel.parentMessage.ID != "P1" {
+		t.Errorf("expected parent message P1 after Ctrl+U, got %s", updatedModel.parentMessage.ID)
+	}
+}
+
+// TestThreadViewModel_AddReply_AutoScroll tests that new replies auto-scroll when cursor is at latest
+func TestThreadViewModel_AddReply_AutoScroll(t *testing.T) {
+	parent := message.Message{
+		ID:        "P1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Parent User",
+		Text:      "Parent message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	replies := make([]message.Message, 5)
+	for i := 0; i < 5; i++ {
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("R%d", i),
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Reply User",
+			Text:      "Reply message",
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+
+	// Verify cursor is at latest reply (index 5 = parent + 5 replies)
+	if model.selectedIndex != 5 {
+		t.Fatalf("expected initial selectedIndex=5, got %d", model.selectedIndex)
+	}
+
+	// Add new reply
+	newReply := message.Message{
+		ID:        "R5",
+		ChannelID: "C12345",
+		UserID:    "U002",
+		UserName:  "Reply User",
+		Text:      "New reply",
+		Timestamp: time.Now().Add(6 * time.Minute),
+		ThreadTS:  "1234567890.123456",
+	}
+	model.AddReply(newReply)
+
+	// Verify cursor moved to new latest reply
+	if model.selectedIndex != 6 {
+		t.Errorf("expected selectedIndex=6 after adding new reply, got %d", model.selectedIndex)
+	}
+}
+
+// TestThreadViewModel_AddReply_NoAutoScroll tests that new replies don't auto-scroll when cursor is not at latest
+func TestThreadViewModel_AddReply_NoAutoScroll(t *testing.T) {
+	parent := message.Message{
+		ID:        "P1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Parent User",
+		Text:      "Parent message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	replies := make([]message.Message, 5)
+	for i := 0; i < 5; i++ {
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("R%d", i),
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Reply User",
+			Text:      "Reply message",
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+
+	// Move cursor to parent
+	model.selectedIndex = 0
+	model.selectedMessageID = parent.ID
+
+	initialIndex := model.selectedIndex
+	initialMessageID := model.selectedMessageID
+
+	// Add new reply
+	newReply := message.Message{
+		ID:        "R5",
+		ChannelID: "C12345",
+		UserID:    "U002",
+		UserName:  "Reply User",
+		Text:      "New reply",
+		Timestamp: time.Now().Add(6 * time.Minute),
+		ThreadTS:  "1234567890.123456",
+	}
+	model.AddReply(newReply)
+
+	// Verify cursor stayed at parent
+	if model.selectedIndex != initialIndex {
+		t.Errorf("expected selectedIndex=%d (unchanged), got %d", initialIndex, model.selectedIndex)
+	}
+	if model.selectedMessageID != initialMessageID {
+		t.Errorf("expected selectedMessageID=%s (unchanged), got %s", initialMessageID, model.selectedMessageID)
+	}
+}
+
+// TestThreadViewModel_InputMode_ScrollPosition tests that scroll position is maintained when entering input mode
+func TestThreadViewModel_InputMode_ScrollPosition(t *testing.T) {
+	parent := message.Message{
+		ID:        "P1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Parent User",
+		Text:      strings.Repeat("Parent line\n", 5),
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	replies := make([]message.Message, 20)
+	for i := 0; i < 20; i++ {
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("R%d", i),
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Reply User",
+			Text:      strings.Repeat("Reply line\n", 3),
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+
+	// Set specific scroll position
+	model.selectedIndex = 10
+	model.selectedMessageID = replies[9].ID
+	model.viewport.SetYOffset(50)
+
+	initialOffset := model.viewport.YOffset
+	initialIndex := model.selectedIndex
+
+	// Enter input mode with 'i' key
+	updatedModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+
+	// Verify scroll position maintained
+	if updatedModel.viewport.YOffset != initialOffset {
+		t.Errorf("expected YOffset=%d (unchanged), got %d", initialOffset, updatedModel.viewport.YOffset)
+	}
+	if updatedModel.selectedIndex != initialIndex {
+		t.Errorf("expected selectedIndex=%d (unchanged), got %d", initialIndex, updatedModel.selectedIndex)
+	}
+	if !updatedModel.inputFocused {
+		t.Error("expected inputFocused=true after 'i' key")
+	}
+
+	// Test with 'r' key
+	model = NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+	model.selectedIndex = 10
+	model.selectedMessageID = replies[9].ID
+	model.viewport.SetYOffset(50)
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+
+	if updatedModel.viewport.YOffset != 50 {
+		t.Errorf("expected YOffset=50 (unchanged) after 'r', got %d", updatedModel.viewport.YOffset)
+	}
+	if !updatedModel.inputFocused {
+		t.Error("expected inputFocused=true after 'r' key")
+	}
+}
+
+// TestThreadViewModel_WindowResize_ScrollAdjustment tests scroll position recalculation on window resize
+func TestThreadViewModel_WindowResize_ScrollAdjustment(t *testing.T) {
+	parent := message.Message{
+		ID:        "P1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Parent User",
+		Text:      strings.Repeat("Parent line\n", 5),
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	replies := make([]message.Message, 20)
+	for i := 0; i < 20; i++ {
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("R%d", i),
+			ChannelID: "C12345",
+			UserID:    "U002",
+			UserName:  "Reply User",
+			Text:      strings.Repeat("Reply line\n", 3),
+			Timestamp: time.Now().Add(time.Duration(i) * time.Minute),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+
+	model := NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+
+	// Set specific position
+	model.selectedIndex = 10
+	model.selectedMessageID = replies[9].ID
+
+	// Simulate window resize (width change)
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+
+	// Verify cache was cleared on width change
+	if len(updatedModel.messageLineHeights) > 0 {
+		t.Error("expected line height cache to be cleared on width change")
+	}
+
+	// Verify cursor position maintained
+	if updatedModel.selectedIndex != 10 {
+		t.Errorf("expected selectedIndex=10 (unchanged), got %d", updatedModel.selectedIndex)
+	}
+
+	// Simulate window resize (height change only)
+	model = NewThreadViewModel("C12345", "1234567890.123456", 80, 20)
+	model.SetThread(parent, replies)
+	model.selectedIndex = 10
+	model.selectedMessageID = replies[9].ID
+	// Populate some cache
+	model.scrollToSelected()
+	cacheSize := len(model.messageLineHeights)
+
+	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	// Verify cache was preserved on height-only change
+	if len(updatedModel.messageLineHeights) != cacheSize {
+		t.Errorf("expected line height cache preserved (size=%d), got %d", cacheSize, len(updatedModel.messageLineHeights))
 	}
 }
