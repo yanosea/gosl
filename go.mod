@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/x/exp/teatest v0.0.0-20251109135125-8916d276318f
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/lucasb-eyer/go-colorful v1.2.0
+	github.com/muesli/reflow v0.3.0
 	github.com/slack-go/slack v0.17.3
 	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.16.0

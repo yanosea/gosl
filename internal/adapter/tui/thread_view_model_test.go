@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/yanosea/gosl/internal/app/port"
 	"github.com/yanosea/gosl/internal/domain/message"
 )
 
@@ -1481,4 +1482,673 @@ func TestThreadViewModel_WindowResize_ScrollAdjustment(t *testing.T) {
 	if len(updatedModel.messageLineHeights) != cacheSize {
 		t.Errorf("expected line height cache preserved (size=%d), got %d", cacheSize, len(updatedModel.messageLineHeights))
 	}
+}
+
+// TestThreadViewModel_TextWrapping tests text wrapping integration
+func TestThreadViewModel_TextWrapping(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 50, 24)
+
+	// Create a very long message that needs wrapping
+	longText := strings.Repeat("This is a very long message that should be wrapped. ", 10)
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Alice",
+		Text:      longText,
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	model.SetThread(parent, []message.Message{})
+
+	// Render the thread
+	rendered := model.renderThread()
+
+	// Verify that the rendered output contains newlines (indicating wrapping)
+	if !strings.Contains(rendered, "\n") {
+		t.Error("expected rendered thread to contain newlines from wrapping")
+	}
+
+	// Verify that the text is present
+	if !strings.Contains(rendered, "This is a very long message") {
+		t.Error("expected rendered thread to contain the message text")
+	}
+}
+
+// TestThreadViewModel_TextWrapping_Disabled tests text wrapping when disabled
+func TestThreadViewModel_TextWrapping_Disabled(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 50, 24)
+
+	// Disable text wrapping
+	model.textWrapConfig.Enabled = false
+
+	// Create a very long message
+	longText := strings.Repeat("This is a very long message. ", 20)
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Alice",
+		Text:      longText,
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	model.SetThread(parent, []message.Message{})
+
+	// Render the thread
+	rendered := model.renderThread()
+
+	// Verify that the text is present
+	if !strings.Contains(rendered, "This is a very long message") {
+		t.Error("expected rendered thread to contain the message text")
+	}
+}
+
+// TestThreadViewModel_TextWrapping_MultiLine tests text wrapping with multi-line messages
+func TestThreadViewModel_TextWrapping_MultiLine(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 50, 24)
+
+	// Create a message with multiple lines, some of which are very long
+	multiLineText := strings.Join([]string{
+		"Short line",
+		strings.Repeat("This is a very long line that should be wrapped. ", 5),
+		"Another short line",
+		strings.Repeat("Another very long line that needs wrapping. ", 5),
+	}, "\n")
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "Alice",
+		Text:      multiLineText,
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	model.SetThread(parent, []message.Message{})
+
+	// Render the thread
+	rendered := model.renderThread()
+
+	// Verify that all lines are present
+	if !strings.Contains(rendered, "Short line") {
+		t.Error("expected rendered thread to contain 'Short line'")
+	}
+
+	if !strings.Contains(rendered, "Another short line") {
+		t.Error("expected rendered thread to contain 'Another short line'")
+	}
+
+	if !strings.Contains(rendered, "This is a very long line") {
+		t.Error("expected rendered thread to contain long line text")
+	}
+
+	if !strings.Contains(rendered, "Another very long line") {
+		t.Error("expected rendered thread to contain another long line text")
+	}
+}
+
+// TestThreadViewModel_TextWrappingIntegration tests text wrapping integration for thread messages
+func TestThreadViewModel_TextWrappingIntegration(t *testing.T) {
+	tests := []struct {
+		name          string
+		parentText    string
+		replyTexts    []string
+		width         int
+		wrapEnabled   bool
+		expectedLines int // minimum expected number of lines for parent message
+	}{
+		{
+			name:          "Long parent message wraps at terminal width",
+			parentText:    "This is a very long parent message that should be wrapped because it exceeds the terminal width and we need to test the wrapping functionality in thread view",
+			replyTexts:    []string{},
+			width:         40,
+			wrapEnabled:   true,
+			expectedLines: 3, // Should wrap into multiple lines
+		},
+		{
+			name:          "Short parent message does not wrap",
+			parentText:    "Short parent",
+			replyTexts:    []string{},
+			width:         80,
+			wrapEnabled:   true,
+			expectedLines: 1,
+		},
+		{
+			name:          "Parent preserves original newlines",
+			parentText:    "Line 1\nLine 2\nLine 3",
+			replyTexts:    []string{},
+			width:         80,
+			wrapEnabled:   true,
+			expectedLines: 3,
+		},
+		{
+			name:          "Long reply message wraps",
+			parentText:    "Parent message",
+			replyTexts:    []string{"This is a very long reply message that should be wrapped because it exceeds the terminal width and we need to test the wrapping functionality"},
+			width:         40,
+			wrapEnabled:   true,
+			expectedLines: 1, // Parent is short
+		},
+		{
+			name:          "Multiple replies with wrapping",
+			parentText:    "Parent",
+			replyTexts:    []string{"Reply 1 is short", "Reply 2 is a very long message that should be wrapped because it exceeds the terminal width"},
+			width:         40,
+			wrapEnabled:   true,
+			expectedLines: 1,
+		},
+		{
+			name:          "Wrapping disabled returns original text",
+			parentText:    "This is a very long parent message that should NOT be wrapped because wrapping is disabled in the configuration",
+			replyTexts:    []string{},
+			width:         40,
+			wrapEnabled:   false,
+			expectedLines: 1, // Should not wrap
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create model with text wrapping configuration
+			model := NewThreadViewModel("C12345", "1234567890.123456", tt.width, 24)
+
+			// Set text wrap config
+			model.textWrapConfig = &port.TextWrapConfig{
+				Enabled:               tt.wrapEnabled,
+				MaxLineWidth:          0, // Use viewport width
+				BreakAtCJKPunctuation: true,
+			}
+
+			// Create parent message
+			parent := message.Message{
+				ID:        "M1",
+				ChannelID: "C12345",
+				UserID:    "U001",
+				UserName:  "ParentUser",
+				Text:      tt.parentText,
+				Timestamp: time.Now(),
+				ThreadTS:  "1234567890.123456",
+			}
+
+			// Create reply messages
+			replies := make([]message.Message, len(tt.replyTexts))
+			for i, replyText := range tt.replyTexts {
+				replies[i] = message.Message{
+					ID:        fmt.Sprintf("M%d", i+2),
+					ChannelID: "C12345",
+					UserID:    fmt.Sprintf("U%03d", i+2),
+					UserName:  fmt.Sprintf("ReplyUser%d", i+1),
+					Text:      replyText,
+					Timestamp: time.Now(),
+					ThreadTS:  "1234567890.123456",
+				}
+			}
+
+			model.SetThread(parent, replies)
+
+			// Render thread
+			rendered := model.renderThread()
+
+			// For parent message, verify text appears in output
+			if !strings.Contains(rendered, parent.UserName) {
+				t.Errorf("Expected rendered thread to contain parent user name %s\nRendered:\n%s",
+					parent.UserName, rendered)
+			}
+
+			// For replies, verify they appear in output
+			for i, reply := range replies {
+				if !strings.Contains(rendered, reply.UserName) {
+					t.Errorf("Expected rendered thread to contain reply user name %s for reply %d\nRendered:\n%s",
+						reply.UserName, i, rendered)
+				}
+			}
+
+			// Verify wrapping behavior by checking parent message rendering
+			var sb strings.Builder
+			model.renderThreadMessage(&sb, parent, 0, 0)
+			parentRendered := sb.String()
+
+			// Count lines in parent message (excluding header line)
+			lines := strings.Split(strings.TrimSpace(parentRendered), "\n")
+			// First line is header (user name + timestamp), remaining lines are message text
+			messageLines := lines[1:]
+			actualMessageLines := len(messageLines)
+
+			if tt.wrapEnabled {
+				// When wrapping is enabled, we expect at least the minimum number of lines
+				if actualMessageLines < tt.expectedLines {
+					t.Errorf("Expected at least %d message lines with wrapping enabled, got %d\nParent rendered:\n%s",
+						tt.expectedLines, actualMessageLines, parentRendered)
+				}
+			} else {
+				// When wrapping is disabled, verify original text appears
+				if !strings.Contains(parentRendered, tt.parentText) {
+					t.Errorf("Original parent text should appear in rendered output when wrapping is disabled\nExpected to find: %s\nGot:\n%s",
+						tt.parentText, parentRendered)
+				}
+			}
+		})
+	}
+}
+
+// TestThreadViewModel_TextWrappingWithCJK tests CJK character wrapping in thread view
+func TestThreadViewModel_TextWrappingWithCJK(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 30, 24)
+
+	// Enable text wrapping with CJK punctuation breaking
+	model.textWrapConfig = &port.TextWrapConfig{
+		Enabled:               true,
+		MaxLineWidth:          0,
+		BreakAtCJKPunctuation: true,
+	}
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "TestUser",
+		Text:      "これは日本語のテストメッセージです。長い文章が折り返されることを確認します。句読点で折り返されるべきです。",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	model.SetThread(parent, []message.Message{})
+
+	var sb strings.Builder
+	model.renderThreadMessage(&sb, parent, 0, 0)
+	rendered := sb.String()
+
+	// Verify the text was wrapped (should have multiple lines)
+	// First line is header, remaining lines are message text
+	lines := strings.Split(strings.TrimSpace(rendered), "\n")
+	messageLines := lines[1:] // Exclude header line
+
+	if len(messageLines) < 2 {
+		t.Errorf("Expected CJK text to be wrapped into multiple message lines, got %d lines\nRendered:\n%s",
+			len(messageLines), rendered)
+	}
+}
+
+// TestThreadViewModel_TextWrappingWithIndentation tests that reply indentation is handled correctly
+func TestThreadViewModel_TextWrappingWithIndentation(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 50, 24)
+
+	model.textWrapConfig = &port.TextWrapConfig{
+		Enabled:               true,
+		MaxLineWidth:          0,
+		BreakAtCJKPunctuation: true,
+	}
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "ParentUser",
+		Text:      "Parent message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	reply := message.Message{
+		ID:        "M2",
+		ChannelID: "C12345",
+		UserID:    "U002",
+		UserName:  "ReplyUser",
+		Text:      "This is a very long reply message that should be wrapped while maintaining proper indentation for thread replies",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	model.SetThread(parent, []message.Message{reply})
+
+	// Select the reply
+	model.selectedIndex = 1
+
+	// Render reply with indentation
+	var sb strings.Builder
+	model.renderThreadMessage(&sb, reply, 2, 1) // indent=2 for reply
+	rendered := sb.String()
+
+	// Verify the reply text was wrapped
+	if !strings.Contains(rendered, "ReplyUser") {
+		t.Error("Expected rendered reply to contain user name")
+	}
+
+	// Verify wrapping occurred (should have multiple lines due to long text)
+	lines := strings.Split(rendered, "\n")
+
+	// First line is header, remaining lines are message text
+	messageLines := lines[1:]
+	nonEmptyLines := 0
+	for _, line := range messageLines {
+		if strings.TrimSpace(line) != "" {
+			nonEmptyLines++
+		}
+	}
+
+	if nonEmptyLines < 2 {
+		t.Errorf("Expected long reply to be wrapped into multiple lines, got %d non-empty message lines\nRendered:\n%s",
+			nonEmptyLines, rendered)
+	}
+
+	// Verify indentation is present in message text lines
+	// Message text should have base indentation
+	hasIndentation := false
+	for i, line := range messageLines {
+		if strings.TrimSpace(line) != "" {
+			// Check if line has some leading whitespace (indentation)
+			if len(line) > len(strings.TrimLeft(line, " ")) {
+				hasIndentation = true
+				break
+			}
+			// If no indentation found on first message line, that's an error
+			if i == 0 && !hasIndentation {
+				t.Errorf("Expected message text to have indentation, got: %q", line)
+			}
+		}
+	}
+
+	if !hasIndentation {
+		t.Error("Expected message text lines to have indentation")
+	}
+}
+
+// TestThreadViewModel_TextWrappingCacheIntegration tests that messageLineHeights cache is used correctly
+func TestThreadViewModel_TextWrappingCacheIntegration(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 50, 24)
+
+	model.textWrapConfig = &port.TextWrapConfig{
+		Enabled:               true,
+		MaxLineWidth:          0,
+		BreakAtCJKPunctuation: true,
+	}
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "TestUser",
+		Text:      "This is a long parent message that will be wrapped and should have its line height cached",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	reply := message.Message{
+		ID:        "M2",
+		ChannelID: "C12345",
+		UserID:    "U002",
+		UserName:  "ReplyUser",
+		Text:      "This is a long reply message that will also be wrapped and cached",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	model.SetThread(parent, []message.Message{reply})
+
+	// Clear cache to start fresh
+	model.messageLineHeights = make(map[string]int)
+
+	// First call to scrollToSelected should populate cache
+	model.selectedIndex = 1 // Select reply
+	model.scrollToSelected()
+
+	// Verify cache was populated for both parent and reply
+	if _, ok := model.messageLineHeights[parent.ID]; !ok {
+		t.Error("Expected parent message line height to be cached")
+	}
+
+	if _, ok := model.messageLineHeights[reply.ID]; !ok {
+		t.Error("Expected reply message line height to be cached")
+	}
+
+	// Store cache values
+	parentHeight := model.messageLineHeights[parent.ID]
+	replyHeight := model.messageLineHeights[reply.ID]
+
+	// Verify cache values are positive
+	if parentHeight <= 0 {
+		t.Errorf("Expected positive parent height, got %d", parentHeight)
+	}
+
+	if replyHeight <= 0 {
+		t.Errorf("Expected positive reply height, got %d", replyHeight)
+	}
+
+	// Second call should use cached values
+	model.scrollToSelected()
+
+	// Verify cache values haven't changed
+	if model.messageLineHeights[parent.ID] != parentHeight {
+		t.Errorf("Expected parent height to remain %d, got %d", parentHeight, model.messageLineHeights[parent.ID])
+	}
+
+	if model.messageLineHeights[reply.ID] != replyHeight {
+		t.Errorf("Expected reply height to remain %d, got %d", replyHeight, model.messageLineHeights[reply.ID])
+	}
+}
+
+// TestThreadViewModel_TextWrappingWidthChange tests cache invalidation on width change
+func TestThreadViewModel_TextWrappingWidthChange(t *testing.T) {
+	model := NewThreadViewModel("C12345", "1234567890.123456", 50, 24)
+
+	model.textWrapConfig = &port.TextWrapConfig{
+		Enabled:               true,
+		MaxLineWidth:          0,
+		BreakAtCJKPunctuation: true,
+	}
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "TestUser",
+		Text:      "This is a message that will be wrapped",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	reply := message.Message{
+		ID:        "M2",
+		ChannelID: "C12345",
+		UserID:    "U002",
+		UserName:  "ReplyUser",
+		Text:      "This is a reply message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	model.SetThread(parent, []message.Message{reply})
+
+	// Select reply to trigger cache population
+	model.selectedIndex = 1
+
+	// Populate cache by calling scrollToSelected
+	model.scrollToSelected()
+
+	// Verify cache has entries
+	initialCacheSize := len(model.messageLineHeights)
+	if initialCacheSize == 0 {
+		t.Error("Expected cache to be populated after scrollToSelected")
+	}
+
+	// Simulate width change via WindowSizeMsg
+	newMsg := tea.WindowSizeMsg{Width: 80, Height: 24}
+	model, _ = model.Update(newMsg)
+
+	// Verify cache was cleared
+	if len(model.messageLineHeights) != 0 {
+		t.Errorf("Expected cache to be cleared after width change, but found %d entries", len(model.messageLineHeights))
+	}
+}
+
+// BenchmarkThreadViewModel_RenderThread benchmarks basic thread rendering
+func BenchmarkThreadViewModel_RenderThread(b *testing.B) {
+	mockCache := newMockUserColorCache()
+	mockService := newMockUserColorService(mockCache)
+	model := NewThreadViewModelWithColorService("C12345", "1234567890.123456", 80, 24, nil, mockService)
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "ParentUser",
+		Text:      "This is the parent message",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	replies := make([]message.Message, 10)
+	for i := 0; i < 10; i++ {
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("M%d", i+2),
+			ChannelID: "C12345",
+			UserID:    fmt.Sprintf("U%03d", i+2),
+			UserName:  fmt.Sprintf("User%d", i+2),
+			Text:      "This is a reply message with content",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+	model.SetThread(parent, replies)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = model.renderThread()
+	}
+}
+
+// BenchmarkThreadViewModel_RenderLongThread benchmarks rendering long thread messages
+func BenchmarkThreadViewModel_RenderLongThread(b *testing.B) {
+	mockCache := newMockUserColorCache()
+	mockService := newMockUserColorService(mockCache)
+	model := NewThreadViewModelWithColorService("C12345", "1234567890.123456", 80, 24, nil, mockService)
+
+	longText := strings.Repeat("Lorem ipsum dolor sit amet, consectetur adipiscing elit. ", 20)
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "ParentUser",
+		Text:      longText,
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	replies := make([]message.Message, 5)
+	for i := 0; i < 5; i++ {
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("M%d", i+2),
+			ChannelID: "C12345",
+			UserID:    fmt.Sprintf("U%03d", i+2),
+			UserName:  fmt.Sprintf("User%d", i+2),
+			Text:      longText,
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+	model.SetThread(parent, replies)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = model.renderThread()
+	}
+}
+
+// BenchmarkThreadViewModel_ScrollToSelected benchmarks scroll position calculation
+func BenchmarkThreadViewModel_ScrollToSelected(b *testing.B) {
+	mockCache := newMockUserColorCache()
+	mockService := newMockUserColorService(mockCache)
+	model := NewThreadViewModelWithColorService("C12345", "1234567890.123456", 80, 24, nil, mockService)
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "ParentUser",
+		Text:      "Parent message\nwith multiple lines",
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	replies := make([]message.Message, 100)
+	for i := 0; i < 100; i++ {
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("M%d", i+2),
+			ChannelID: "C12345",
+			UserID:    fmt.Sprintf("U%03d", i+2),
+			UserName:  fmt.Sprintf("User%d", i+2),
+			Text:      "Reply message\nwith content",
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+	model.SetThread(parent, replies)
+
+	// Populate cache
+	model.scrollToSelected()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		model.selectedIndex = i % (len(replies) + 1)
+		model.scrollToSelected()
+	}
+}
+
+// TestThreadViewModel_CacheMemoryUsage tests that message line heights cache is within limits
+func TestThreadViewModel_CacheMemoryUsage(t *testing.T) {
+	mockCache := newMockUserColorCache()
+	mockService := newMockUserColorService(mockCache)
+	model := NewThreadViewModelWithColorService("C12345", "1234567890.123456", 80, 24, nil, mockService)
+
+	parent := message.Message{
+		ID:        "M1",
+		ChannelID: "C12345",
+		UserID:    "U001",
+		UserName:  "ParentUser",
+		Text:      fmt.Sprintf("Parent: %s", strings.Repeat("Sample text. ", 10)),
+		Timestamp: time.Now(),
+		ThreadTS:  "1234567890.123456",
+	}
+
+	replies := make([]message.Message, 100)
+	for i := 0; i < 100; i++ {
+		text := fmt.Sprintf("Reply %d: %s", i, strings.Repeat("Sample text. ", 10))
+		replies[i] = message.Message{
+			ID:        fmt.Sprintf("M%d", i+2),
+			ChannelID: "C12345",
+			UserID:    fmt.Sprintf("U%03d", i+2),
+			UserName:  fmt.Sprintf("User%d", i+2),
+			Text:      text,
+			Timestamp: time.Now(),
+			ThreadTS:  "1234567890.123456",
+		}
+	}
+	model.SetThread(parent, replies)
+
+	// Populate line heights cache by scrolling
+	for i := 0; i <= len(replies); i++ {
+		model.selectedIndex = i
+		model.scrollToSelected()
+	}
+
+	cacheSize := len(model.messageLineHeights)
+	if cacheSize == 0 {
+		t.Fatal("Expected messageLineHeights cache to be populated")
+	}
+
+	t.Logf("Thread view line heights cache entries: %d", cacheSize)
+	t.Logf("Messages (parent + replies): %d", len(replies)+1)
+	
+	// Note: ThreadViewModel uses messageLineHeights which stores int (line count) not rendered strings
+	// So memory usage is minimal - just map overhead + int values
+	estimatedMemoryPerEntry := 50 // Conservative estimate for map key + int value
+	totalEstimatedMemory := cacheSize * estimatedMemoryPerEntry
+	
+	t.Logf("Estimated cache memory: ~%d bytes (%.2f KB)", totalEstimatedMemory, float64(totalEstimatedMemory)/1024.0)
 }

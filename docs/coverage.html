@@ -57,7 +57,7 @@
 				
 				<option value="file0">github.com/yanosea/gosl/cmd/gosl/main.go (41.8%)</option>
 				
-				<option value="file1">github.com/yanosea/gosl/internal/adapter/config/config_adapter.go (71.4%)</option>
+				<option value="file1">github.com/yanosea/gosl/internal/adapter/config/config_adapter.go (74.2%)</option>
 				
 				<option value="file2">github.com/yanosea/gosl/internal/adapter/slack/retry.go (0.0%)</option>
 				
@@ -73,7 +73,7 @@
 				
 				<option value="file8">github.com/yanosea/gosl/internal/adapter/tui/message_input_model.go (62.6%)</option>
 				
-				<option value="file9">github.com/yanosea/gosl/internal/adapter/tui/message_view_model.go (78.2%)</option>
+				<option value="file9">github.com/yanosea/gosl/internal/adapter/tui/message_view_model.go (79.0%)</option>
 				
 				<option value="file10">github.com/yanosea/gosl/internal/adapter/tui/messages.go (0.0%)</option>
 				
@@ -83,31 +83,37 @@
 				
 				<option value="file13">github.com/yanosea/gosl/internal/adapter/tui/string_pool.go (100.0%)</option>
 				
-				<option value="file14">github.com/yanosea/gosl/internal/adapter/tui/thread_view_model.go (75.5%)</option>
+				<option value="file14">github.com/yanosea/gosl/internal/adapter/tui/thread_view_model.go (75.8%)</option>
 				
-				<option value="file15">github.com/yanosea/gosl/internal/app/port/slack_repository.go (0.0%)</option>
+				<option value="file15">github.com/yanosea/gosl/internal/app/port/config_repository.go (0.0%)</option>
 				
-				<option value="file16">github.com/yanosea/gosl/internal/app/service/app_service.go (64.3%)</option>
+				<option value="file16">github.com/yanosea/gosl/internal/app/port/slack_repository.go (0.0%)</option>
 				
-				<option value="file17">github.com/yanosea/gosl/internal/domain/cache/message_cache.go (84.3%)</option>
+				<option value="file17">github.com/yanosea/gosl/internal/app/service/app_service.go (64.3%)</option>
 				
-				<option value="file18">github.com/yanosea/gosl/internal/domain/channel/channel.go (87.5%)</option>
+				<option value="file18">github.com/yanosea/gosl/internal/domain/cache/message_cache.go (84.3%)</option>
 				
-				<option value="file19">github.com/yanosea/gosl/internal/domain/errorhandler/error_handler.go (89.5%)</option>
+				<option value="file19">github.com/yanosea/gosl/internal/domain/channel/channel.go (87.5%)</option>
 				
-				<option value="file20">github.com/yanosea/gosl/internal/domain/logger/logger.go (65.0%)</option>
+				<option value="file20">github.com/yanosea/gosl/internal/domain/errorhandler/error_handler.go (89.5%)</option>
 				
-				<option value="file21">github.com/yanosea/gosl/internal/domain/message/message.go (100.0%)</option>
+				<option value="file21">github.com/yanosea/gosl/internal/domain/logger/logger.go (65.0%)</option>
 				
-				<option value="file22">github.com/yanosea/gosl/internal/domain/reconnect/reconnect_handler.go (77.3%)</option>
+				<option value="file22">github.com/yanosea/gosl/internal/domain/message/message.go (100.0%)</option>
 				
-				<option value="file23">github.com/yanosea/gosl/internal/domain/user/user.go (100.0%)</option>
+				<option value="file23">github.com/yanosea/gosl/internal/domain/reconnect/reconnect_handler.go (77.3%)</option>
 				
-				<option value="file24">github.com/yanosea/gosl/internal/domain/usercolor/cache.go (87.5%)</option>
+				<option value="file24">github.com/yanosea/gosl/internal/domain/textwrap/detector.go (100.0%)</option>
 				
-				<option value="file25">github.com/yanosea/gosl/internal/domain/usercolor/color.go (100.0%)</option>
+				<option value="file25">github.com/yanosea/gosl/internal/domain/textwrap/wrapper.go (91.5%)</option>
 				
-				<option value="file26">github.com/yanosea/gosl/internal/domain/usercolor/service.go (95.3%)</option>
+				<option value="file26">github.com/yanosea/gosl/internal/domain/user/user.go (100.0%)</option>
+				
+				<option value="file27">github.com/yanosea/gosl/internal/domain/usercolor/cache.go (87.5%)</option>
+				
+				<option value="file28">github.com/yanosea/gosl/internal/domain/usercolor/color.go (100.0%)</option>
+				
+				<option value="file29">github.com/yanosea/gosl/internal/domain/usercolor/service.go (95.3%)</option>
 				
 				</select>
 			</div>
@@ -449,7 +455,9 @@ func (a *ConfigAdapter) Load(ctx context.Context) (*port.Config, error) <span cl
                 return nil, err
         }</span>
 
-        <span class="cov8" title="1">return &amp;config, nil</span>
+        <span class="cov8" title="1">a.applyTextWrapDefaults(&amp;config)
+
+        return &amp;config, nil</span>
 }
 
 func (a *ConfigAdapter) Save(ctx context.Context, config *port.Config) error <span class="cov8" title="1">{
@@ -484,6 +492,7 @@ func (a *ConfigAdapter) GenerateTemplate(ctx context.Context) error <span class=
                 DefaultChannel: "general",
                 MessageLimit:   DefaultMessageLimit,
                 LogLevel:       "info",
+                TextWrap:       port.DefaultTextWrapConfig(),
         }
 
         return a.Save(ctx, template)
@@ -519,6 +528,17 @@ func (a *ConfigAdapter) validateAndCorrect(config *port.Config) error <span clas
         }</span>
 
         <span class="cov8" title="1">return nil</span>
+}
+
+func (a *ConfigAdapter) applyTextWrapDefaults(config *port.Config) <span class="cov8" title="1">{
+        if config.TextWrap == (port.TextWrapConfig{}) </span><span class="cov8" title="1">{
+                config.TextWrap = port.DefaultTextWrapConfig()
+                return
+        }</span>
+
+        <span class="cov8" title="1">if config.TextWrap.MaxLineWidth &lt; 0 || (config.TextWrap.MaxLineWidth &gt; 0 &amp;&amp; (config.TextWrap.MaxLineWidth &lt; 20 || config.TextWrap.MaxLineWidth &gt; 500)) </span><span class="cov8" title="1">{
+                config.TextWrap.MaxLineWidth = 0
+        }</span>
 }
 </pre>
 		
@@ -2920,7 +2940,9 @@ import (
         tea "github.com/charmbracelet/bubbletea"
         "github.com/charmbracelet/lipgloss"
 
+        "github.com/yanosea/gosl/internal/app/port"
         "github.com/yanosea/gosl/internal/domain/message"
+        "github.com/yanosea/gosl/internal/domain/textwrap"
         "github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
@@ -2947,6 +2969,8 @@ type MessageViewModel struct {
         sender             MessageSender
         isDarkBackground   bool
         userColorService   usercolor.Service
+        textWrapper        *textwrap.TextWrapper    // Text wrapping service
+        textWrapConfig     *port.TextWrapConfig     // Text wrapping configuration
 }
 
 func NewMessageViewModel(channelID string, width, height int) MessageViewModel <span class="cov8" title="1">{
@@ -2977,6 +3001,9 @@ func NewMessageViewModelWithColorService(channelID string, width, height int, se
         ta.ShowLineNumbers = false
         ta.Blur() // Start with viewport focused
 
+        // Initialize text wrapper with default configuration (wrapping disabled until config is set)
+        defaultConfig := port.DefaultTextWrapConfig()
+
         return MessageViewModel{
                 viewport:           vp,
                 messages:           []message.Message{},
@@ -2992,8 +3019,16 @@ func NewMessageViewModelWithColorService(channelID string, width, height int, se
                 inputFocused:       false,
                 sender:             sender,
                 userColorService:   colorService,
+                textWrapper:        textwrap.NewTextWrapper(),
+                textWrapConfig:     &amp;defaultConfig,
         }</span>
 }
+
+// getCacheKey generates a cache key in the format "messageID-width"
+// This ensures cache entries are invalidated when terminal width changes.
+func getCacheKey(messageID string, width int) string <span class="cov8" title="1">{
+        return fmt.Sprintf("%s-%d", messageID, width)
+}</span>
 
 func (m MessageViewModel) Init() tea.Cmd <span class="cov0" title="0">{
         return tea.Batch(textarea.Blink, m.startRefreshTimer())
@@ -3122,8 +3157,9 @@ func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) <span 
                 m.inputArea.SetWidth(msg.Width - 4)
                 m.inputArea.SetHeight(inputHeight)
 
-                // Clear cache if width changed (lipgloss rendering may differ)
+                // Clear cache if width changed (lipgloss rendering and text wrapping may differ)
                 if oldWidth != m.width </span><span class="cov8" title="1">{
+                        m.renderCache.InvalidateAll()
                         m.messageLineHeights = make(map[string]int)
                 }</span>
 
@@ -3341,7 +3377,8 @@ func (m *MessageViewModel) renderMessages() string <span class="cov8" title="1">
 
 func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Message, selected bool) <span class="cov8" title="1">{
         if !selected </span><span class="cov8" title="1">{
-                if cached, found := m.renderCache.Get(msg.ID); found </span><span class="cov8" title="1">{
+                cacheKey := getCacheKey(msg.ID, m.viewport.Width)
+                if cached, found := m.renderCache.Get(cacheKey); found </span><span class="cov8" title="1">{
                         sb.WriteString(cached)
                         return
                 }</span>
@@ -3375,6 +3412,9 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
 
         highlightedText := m.highlightText(msg.Text)
 
+        // Apply text wrapping after highlighting, before styling
+        wrappedText := m.wrapText(highlightedText)
+
         // Apply user-specific background color if colorService is available
         var messageStyle lipgloss.Style
         if m.userColorService != nil </span><span class="cov8" title="1">{
@@ -3385,7 +3425,7 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
                 var bgColor usercolor.Color
                 if m.isDarkBackground </span><span class="cov8" title="1">{
                         bgColor = adaptiveColor.Dark
-                }</span> else<span class="cov0" title="0"> {
+                }</span> else<span class="cov8" title="1"> {
                         bgColor = adaptiveColor.Light
                 }</span>
 
@@ -3399,7 +3439,7 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
                 messageStyle = lipgloss.NewStyle()
         }</span>
 
-        <span class="cov8" title="1">lines := strings.Split(highlightedText, "\n")
+        <span class="cov8" title="1">lines := strings.Split(wrappedText, "\n")
         for i, line := range lines </span><span class="cov8" title="1">{
                 if i &gt; 0 </span><span class="cov8" title="1">{
                         msgBuilder.WriteString("\n")
@@ -3423,7 +3463,12 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
         rendered := msgBuilder.String()
 
         if !selected </span><span class="cov8" title="1">{
-                m.renderCache.Set(msg.ID, rendered)
+                cacheKey := getCacheKey(msg.ID, m.viewport.Width)
+                m.renderCache.Set(cacheKey, rendered)
+
+                // Update messageLineHeights cache
+                lineCount := strings.Count(rendered, "\n")
+                m.messageLineHeights[cacheKey] = lineCount
         }</span>
 
         <span class="cov8" title="1">sb.WriteString(rendered)</span>
@@ -3472,6 +3517,55 @@ func (m *MessageViewModel) highlightMentions(text string) string <span class="co
         }
 
         <span class="cov8" title="1">return text</span>
+}
+
+// wrapText wraps text according to terminal width and configuration.
+// It calculates the available width by subtracting message text indent and user color padding
+// from the viewport width.
+func (m *MessageViewModel) wrapText(text string) string <span class="cov8" title="1">{
+        // Return text as-is if text wrapper or config is not available
+        if m.textWrapper == nil || m.textWrapConfig == nil </span><span class="cov0" title="0">{
+                return text
+        }</span>
+
+        // Return text as-is if wrapping is disabled
+        <span class="cov8" title="1">if !m.textWrapConfig.Enabled </span><span class="cov8" title="1">{
+                return text
+        }</span>
+
+        // Calculate available width for text
+        // Subtract messageTextIndent (5 spaces) and user color padding if applicable
+        <span class="cov8" title="1">availableWidth := m.viewport.Width - messageTextIndent
+
+        // If user color service is enabled, subtract additional padding (2 spaces for left+right padding)
+        if m.userColorService != nil </span><span class="cov8" title="1">{
+                availableWidth -= 2 // Padding(0, 1) adds 1 space on each side
+        }</span>
+
+        // Ensure minimum width
+        <span class="cov8" title="1">if availableWidth &lt; 10 </span><span class="cov0" title="0">{
+                // If width is too small, return text as-is to avoid errors
+                return text
+        }</span>
+
+        // Use MaxLineWidth from config if set, otherwise use available width
+        <span class="cov8" title="1">wrapWidth := availableWidth
+        if m.textWrapConfig.MaxLineWidth &gt; 0 &amp;&amp; m.textWrapConfig.MaxLineWidth &lt; availableWidth </span><span class="cov0" title="0">{
+                wrapWidth = m.textWrapConfig.MaxLineWidth
+        }</span>
+
+        // Convert config to domain TextWrapOptions
+        <span class="cov8" title="1">opts := m.textWrapConfig.ToOptions()
+
+        // Wrap text using the TextWrapper
+        wrapped, err := m.textWrapper.WrapText(text, wrapWidth, opts)
+        if err != nil </span><span class="cov0" title="0">{
+                // On error, log and return original text (graceful degradation)
+                // TODO: Add proper error logging when logger is available
+                return text
+        }</span>
+
+        <span class="cov8" title="1">return wrapped</span>
 }
 
 func findAllMatches(text, pattern string) []string <span class="cov8" title="1">{
@@ -3557,7 +3651,8 @@ func (m *MessageViewModel) scrollToSelected() <span class="cov8" title="1">{
         }</span>
 
         // 2. Get or calculate selected message height
-        <span class="cov8" title="1">selectedMessageHeight, ok := m.messageLineHeights[m.selectedMessageID]
+        <span class="cov8" title="1">selectedCacheKey := getCacheKey(m.selectedMessageID, m.viewport.Width)
+        selectedMessageHeight, ok := m.messageLineHeights[selectedCacheKey]
         if !ok </span><span class="cov8" title="1">{
                 // Cache miss: render message and count lines
                 sb := m.stringBuilders.Get()
@@ -3566,13 +3661,14 @@ func (m *MessageViewModel) scrollToSelected() <span class="cov8" title="1">{
                 sb.WriteString("\n")
                 rendered := sb.String()
                 selectedMessageHeight = strings.Count(rendered, "\n")
-                m.messageLineHeights[m.selectedMessageID] = selectedMessageHeight
+                m.messageLineHeights[selectedCacheKey] = selectedMessageHeight
         }</span>
 
         // 3. Calculate selected message line start position
         <span class="cov8" title="1">selectedLineStart := 0
         for i := 0; i &lt; m.selectedIndex; i++ </span><span class="cov8" title="1">{
-                msgHeight, ok := m.messageLineHeights[m.messages[i].ID]
+                msgCacheKey := getCacheKey(m.messages[i].ID, m.viewport.Width)
+                msgHeight, ok := m.messageLineHeights[msgCacheKey]
                 if !ok </span><span class="cov8" title="1">{
                         // Cache miss: render and calculate line height
                         msgSB := m.stringBuilders.Get()
@@ -3580,7 +3676,7 @@ func (m *MessageViewModel) scrollToSelected() <span class="cov8" title="1">{
                         msgSB.WriteString("\n")
                         rendered := msgSB.String()
                         msgHeight = strings.Count(rendered, "\n")
-                        m.messageLineHeights[m.messages[i].ID] = msgHeight
+                        m.messageLineHeights[msgCacheKey] = msgHeight
                         m.stringBuilders.Put(msgSB)
                 }</span>
                 <span class="cov8" title="1">selectedLineStart += msgHeight</span>
@@ -3973,7 +4069,9 @@ import (
         tea "github.com/charmbracelet/bubbletea"
         "github.com/charmbracelet/lipgloss"
 
+        "github.com/yanosea/gosl/internal/app/port"
         "github.com/yanosea/gosl/internal/domain/message"
+        "github.com/yanosea/gosl/internal/domain/textwrap"
         "github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
@@ -3996,6 +4094,8 @@ type ThreadViewModel struct {
         sender             MessageSender
         isDarkBackground   bool
         userColorService   usercolor.Service
+        textWrapper        *textwrap.TextWrapper // Text wrapping service
+        textWrapConfig     *port.TextWrapConfig  // Text wrapping configuration
 }
 
 // NewThreadViewModel creates a new ThreadViewModel instance.
@@ -4029,6 +4129,13 @@ func NewThreadViewModelWithColorService(channelID, threadTS string, width, heigh
         ta.ShowLineNumbers = false
         ta.Blur() // Start with viewport focused
 
+        // Initialize text wrapping with default config
+        defaultConfig := port.TextWrapConfig{
+                Enabled:               true,
+                MaxLineWidth:          0, // Use terminal width
+                BreakAtCJKPunctuation: true,
+        }
+
         return ThreadViewModel{
                 viewport:           vp,
                 parentMessage:      message.Message{},
@@ -4045,6 +4152,8 @@ func NewThreadViewModelWithColorService(channelID, threadTS string, width, heigh
                 inputFocused:       false,
                 sender:             sender,
                 userColorService:   colorService,
+                textWrapper:        textwrap.NewTextWrapper(),
+                textWrapConfig:     &amp;defaultConfig,
         }</span>
 }
 
@@ -4544,6 +4653,7 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
 
         // Message text (with indentation)
         highlightedText := m.highlightText(msg.Text)
+        wrappedText := m.wrapText(highlightedText, indent)
 
         // Calculate base indentation for message text
         baseIndent := "  " + strings.Repeat(" ", indent) + "   "
@@ -4573,7 +4683,7 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
         }</span>
 
         // Handle multi-line messages by adding proper indentation to each line
-        <span class="cov8" title="1">textLines := strings.Split(highlightedText, "\n")
+        <span class="cov8" title="1">textLines := strings.Split(wrappedText, "\n")
         for i, line := range textLines </span><span class="cov8" title="1">{
                 if i &gt; 0 </span><span class="cov8" title="1">{
                         sb.WriteString("\n")
@@ -4647,6 +4757,7 @@ func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent i
         // Message text (with indentation)
         // Apply highlighting (reuse from MessageViewModel)
         highlightedText := m.highlightText(msg.Text)
+        wrappedText := m.wrapText(highlightedText, indent)
 
         // Calculate base indentation for message text
         baseIndent := "  " + strings.Repeat(" ", indent) + "   "
@@ -4676,7 +4787,7 @@ func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent i
         }</span>
 
         // Handle multi-line messages by adding proper indentation to each line
-        <span class="cov8" title="1">textLines := strings.Split(highlightedText, "\n")
+        <span class="cov8" title="1">textLines := strings.Split(wrappedText, "\n")
         for _, line := range textLines </span><span class="cov8" title="1">{
                 if m.userColorService != nil </span><span class="cov8" title="1">{
                         lines = append(lines, baseIndent+messageStyle.Render(line))
@@ -4741,6 +4852,58 @@ func (m *ThreadViewModel) highlightMentions(text string) string <span class="cov
         }
 
         <span class="cov8" title="1">return text</span>
+}
+
+// wrapText wraps the given text to fit within the available width, accounting for indentation.
+// indent specifies the number of spaces used for reply indentation (0 for parent, 2+ for replies).
+// The available width is calculated by subtracting the base indentation (selection indicator + thread indicator)
+// and user color padding (if applicable) from the viewport width.
+func (m *ThreadViewModel) wrapText(text string, indent int) string <span class="cov8" title="1">{
+        // Return text as-is if text wrapper or config is not available
+        if m.textWrapper == nil || m.textWrapConfig == nil </span><span class="cov0" title="0">{
+                return text
+        }</span>
+
+        // Return text as-is if wrapping is disabled
+        <span class="cov8" title="1">if !m.textWrapConfig.Enabled </span><span class="cov8" title="1">{
+                return text
+        }</span>
+
+        // Calculate base indentation: selection indicator (2) + indent + thread indicator (3)
+        <span class="cov8" title="1">baseIndentLen := 2 + indent + 3
+
+        // Calculate available width for text
+        availableWidth := m.width - baseIndentLen
+
+        // If user color service is enabled, subtract additional padding (2 spaces for left+right padding)
+        if m.userColorService != nil </span><span class="cov8" title="1">{
+                availableWidth -= 2 // Padding(0, 1) adds 1 space on each side
+        }</span>
+
+        // Ensure minimum width
+        <span class="cov8" title="1">if availableWidth &lt; 10 </span><span class="cov0" title="0">{
+                // If width is too small, return text as-is to avoid errors
+                return text
+        }</span>
+
+        // Use MaxLineWidth from config if set, otherwise use available width
+        <span class="cov8" title="1">wrapWidth := availableWidth
+        if m.textWrapConfig.MaxLineWidth &gt; 0 &amp;&amp; m.textWrapConfig.MaxLineWidth &lt; availableWidth </span><span class="cov0" title="0">{
+                wrapWidth = m.textWrapConfig.MaxLineWidth
+        }</span>
+
+        // Convert config to domain TextWrapOptions
+        <span class="cov8" title="1">opts := m.textWrapConfig.ToOptions()
+
+        // Wrap text using the TextWrapper
+        wrapped, err := m.textWrapper.WrapText(text, wrapWidth, opts)
+        if err != nil </span><span class="cov0" title="0">{
+                // On error, log and return original text (graceful degradation)
+                // TODO: Add proper error logging when logger is available
+                return text
+        }</span>
+
+        <span class="cov8" title="1">return wrapped</span>
 }
 
 // renderThread renders all thread messages as a single string for the viewport.
@@ -4893,6 +5056,54 @@ func (m *ThreadViewModel) refreshThreadData() tea.Cmd <span class="cov0" title="
 
 import (
         "context"
+
+        "github.com/yanosea/gosl/internal/domain/textwrap"
+)
+
+type Config struct {
+        SlackToken     string             `toml:"slack_token"`
+        AppToken       string             `toml:"app_token"`
+        WorkspaceID    string             `toml:"workspace_id"`
+        DefaultChannel string             `toml:"default_channel"`
+        MessageLimit   int                `toml:"message_limit"`
+        LogLevel       string             `toml:"log_level"`
+        TextWrap       TextWrapConfig     `toml:"text_wrap"`
+}
+
+type TextWrapConfig struct {
+        Enabled               bool `toml:"enabled"`
+        MaxLineWidth          int  `toml:"max_line_width"`
+        BreakAtCJKPunctuation bool `toml:"break_at_cjk_punctuation"`
+}
+
+func DefaultTextWrapConfig() TextWrapConfig <span class="cov0" title="0">{
+        return TextWrapConfig{
+                Enabled:               true,
+                MaxLineWidth:          0,
+                BreakAtCJKPunctuation: true,
+        }
+}</span>
+
+func (c TextWrapConfig) ToOptions() textwrap.TextWrapOptions <span class="cov0" title="0">{
+        return textwrap.TextWrapOptions{
+                Enabled:               c.Enabled,
+                MaxLineWidth:          c.MaxLineWidth,
+                BreakAtCJKPunctuation: c.BreakAtCJKPunctuation,
+        }
+}</span>
+
+type ConfigRepository interface {
+        Load(ctx context.Context) (*Config, error)
+        Save(ctx context.Context, config *Config) error
+        GenerateTemplate(ctx context.Context) error
+        GetConfigPath() string
+}
+</pre>
+		
+		<pre class="file" id="file16" style="display: none">package port
+
+import (
+        "context"
         "errors"
 
         "github.com/yanosea/gosl/internal/domain/channel"
@@ -4954,7 +5165,7 @@ type SlackRepository interface {
 }
 </pre>
 		
-		<pre class="file" id="file16" style="display: none">package service
+		<pre class="file" id="file17" style="display: none">package service
 
 import (
         "context"
@@ -5051,7 +5262,7 @@ func (s *AppService) SetCurrentChannel(channelID string) <span class="cov0" titl
 }
 </pre>
 		
-		<pre class="file" id="file17" style="display: none">package cache
+		<pre class="file" id="file18" style="display: none">package cache
 
 import (
         "sync"
@@ -5180,7 +5391,7 @@ func (c *MessageCache) evictLRU() bool <span class="cov8" title="1">{
 }
 </pre>
 		
-		<pre class="file" id="file18" style="display: none">package channel
+		<pre class="file" id="file19" style="display: none">package channel
 
 import "time"
 
@@ -5231,7 +5442,7 @@ func (c *Channel) UpdateLastMessageTime(t time.Time) <span class="cov8" title="1
 }</span>
 </pre>
 		
-		<pre class="file" id="file19" style="display: none">package errorhandler
+		<pre class="file" id="file20" style="display: none">package errorhandler
 
 import (
         "errors"
@@ -5340,7 +5551,7 @@ func HandleError(err error) AppError <span class="cov8" title="1">{
 }
 </pre>
 		
-		<pre class="file" id="file20" style="display: none">package logger
+		<pre class="file" id="file21" style="display: none">package logger
 
 import (
         "context"
@@ -5467,7 +5678,7 @@ func ensureLogDirectory(logPath string) error <span class="cov8" title="1">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file21" style="display: none">package message
+		<pre class="file" id="file22" style="display: none">package message
 
 import (
         "errors"
@@ -5525,7 +5736,7 @@ func (m *Message) SetThreadInfo(threadTS string, replyCount int) <span class="co
 }</span>
 </pre>
 		
-		<pre class="file" id="file22" style="display: none">package reconnect
+		<pre class="file" id="file23" style="display: none">package reconnect
 
 import (
         "context"
@@ -5686,7 +5897,415 @@ func (h *ReconnectHandler) GetStatus() Status <span class="cov8" title="1">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file23" style="display: none">package user
+		<pre class="file" id="file24" style="display: none">package textwrap
+
+import (
+        "regexp"
+        "sort"
+)
+
+// RangeType represents the type of a range.
+type RangeType int
+
+const (
+        RangeTypeCodeBlock RangeType = iota
+        RangeTypeQuote
+        RangeTypeURL
+)
+
+// Range represents a range within text.
+type Range struct {
+        Start int // Start position (byte offset)
+        End   int // End position (byte offset)
+        Type  RangeType
+}
+
+// SpecialFormatDetector detects special formats in text.
+type SpecialFormatDetector struct{}
+
+// NewSpecialFormatDetector creates a new instance of SpecialFormatDetector.
+func NewSpecialFormatDetector() *SpecialFormatDetector <span class="cov8" title="1">{
+        return &amp;SpecialFormatDetector{}
+}</span>
+
+// DetectCodeBlocks detects code blocks in text.
+func (d *SpecialFormatDetector) DetectCodeBlocks(text string) []Range <span class="cov8" title="1">{
+        ranges := []Range{}
+
+        // Detect multiline code blocks (higher priority)
+        multilinePattern := regexp.MustCompile("```[\\s\\S]*?```")
+        multilineMatches := multilinePattern.FindAllStringIndex(text, -1)
+        for _, match := range multilineMatches </span><span class="cov8" title="1">{
+                ranges = append(ranges, Range{
+                        Start: match[0],
+                        End:   match[1],
+                        Type:  RangeTypeCodeBlock,
+                })
+        }</span>
+
+        // Detect inline code blocks
+        <span class="cov8" title="1">inlinePattern := regexp.MustCompile("`([^`]+)`")
+        inlineMatches := inlinePattern.FindAllStringIndex(text, -1)
+        for _, match := range inlineMatches </span><span class="cov8" title="1">{
+                // Check if it doesn't overlap with existing multiline code blocks
+                overlaps := false
+                for _, existingRange := range ranges </span><span class="cov8" title="1">{
+                        if match[0] &gt;= existingRange.Start &amp;&amp; match[1] &lt;= existingRange.End </span><span class="cov8" title="1">{
+                                overlaps = true
+                                break</span>
+                        }
+                }
+                <span class="cov8" title="1">if !overlaps </span><span class="cov8" title="1">{
+                        ranges = append(ranges, Range{
+                                Start: match[0],
+                                End:   match[1],
+                                Type:  RangeTypeCodeBlock,
+                        })
+                }</span>
+        }
+
+        // Sort by start position
+        <span class="cov8" title="1">sort.Slice(ranges, func(i, j int) bool </span><span class="cov8" title="1">{
+                return ranges[i].Start &lt; ranges[j].Start
+        }</span>)
+
+        <span class="cov8" title="1">return ranges</span>
+}
+
+// DetectSpecialFormats detects all special formats in text.
+// Priority: CodeBlock &gt; URL &gt; Quote
+func (d *SpecialFormatDetector) DetectSpecialFormats(text string) []Range <span class="cov8" title="1">{
+        // Currently only code blocks are implemented
+        return d.DetectCodeBlocks(text)
+}</span>
+
+// DetectQuotes detects quote blocks (lines starting with '&gt;').
+func (d *SpecialFormatDetector) DetectQuotes(text string) []Range <span class="cov8" title="1">{
+        ranges := []Range{}
+
+        // Pattern: line starting with '&gt;' followed by optional whitespace
+        quotePattern := regexp.MustCompile(`(?m)^&gt;\s*.*$`)
+        matches := quotePattern.FindAllStringIndex(text, -1)
+
+        for _, match := range matches </span><span class="cov8" title="1">{
+                ranges = append(ranges, Range{
+                        Start: match[0],
+                        End:   match[1],
+                        Type:  RangeTypeQuote,
+                })
+        }</span>
+
+        <span class="cov8" title="1">return ranges</span>
+}
+
+// DetectURLs detects URLs in text.
+func (d *SpecialFormatDetector) DetectURLs(text string) []Range <span class="cov8" title="1">{
+        ranges := []Range{}
+
+        // Reuse the existing highlightURLs() pattern
+        urlPattern := regexp.MustCompile(`https?://[a-zA-Z0-9\-._~:/?#\[\]@!$&amp;'()*+,;=%]+`)
+        matches := urlPattern.FindAllStringIndex(text, -1)
+
+        for _, match := range matches </span><span class="cov8" title="1">{
+                ranges = append(ranges, Range{
+                        Start: match[0],
+                        End:   match[1],
+                        Type:  RangeTypeURL,
+                })
+        }</span>
+
+        <span class="cov8" title="1">return ranges</span>
+}
+</pre>
+		
+		<pre class="file" id="file25" style="display: none">package textwrap
+
+import (
+        "fmt"
+        "strings"
+
+        "github.com/mattn/go-runewidth"
+        "github.com/muesli/reflow/ansi"
+        "github.com/muesli/reflow/wordwrap"
+)
+
+// TextWrapOptions represents text wrapping configuration for domain layer (external format independent).
+type TextWrapOptions struct {
+        Enabled               bool
+        MaxLineWidth          int
+        BreakAtCJKPunctuation bool
+}
+
+// TextWrapper provides pure business logic for text wrapping.
+type TextWrapper struct {
+        detector *SpecialFormatDetector
+}
+
+// NewTextWrapper creates a new instance of TextWrapper.
+func NewTextWrapper() *TextWrapper <span class="cov8" title="1">{
+        return &amp;TextWrapper{
+                detector: NewSpecialFormatDetector(),
+        }
+}</span>
+
+// WrapText wraps text according to specified width.
+// It considers special formats (code blocks, quotes, URLs) and preserves original line breaks.
+//
+// Parameters:
+//   - text: Text to wrap
+//   - width: Terminal width (character count)
+//   - opts: Text wrapping options
+//
+// Returns:
+//   - Wrapped text
+//   - Error (if width is 0 or less)
+func (tw *TextWrapper) WrapText(text string, width int, opts TextWrapOptions) (string, error) <span class="cov8" title="1">{
+        // Precondition: width &gt; 0
+        if width &lt;= 0 </span><span class="cov8" title="1">{
+                return "", fmt.Errorf("invalid width: %d", width)
+        }</span>
+
+        // Return text as-is if wrapping is disabled
+        <span class="cov8" title="1">if !opts.Enabled </span><span class="cov8" title="1">{
+                return text, nil
+        }</span>
+
+        // Return empty string for empty text
+        <span class="cov8" title="1">if text == "" </span><span class="cov8" title="1">{
+                return "", nil
+        }</span>
+
+        // Detect special formats in the entire text
+        <span class="cov8" title="1">specialRanges := tw.detector.DetectSpecialFormats(text)
+
+        // Split text by newlines to preserve original line breaks
+        lines := strings.Split(text, "\n")
+        wrappedLines := make([]string, 0, len(lines))
+
+        // Track position in the original text
+        pos := 0
+
+        // Wrap each line independently
+        for i, line := range lines </span><span class="cov8" title="1">{
+                lineStart := pos
+                lineEnd := pos + len(line)
+
+                // Check if this line is inside a code block
+                inCodeBlock := tw.isInRange(lineStart, lineEnd, specialRanges, RangeTypeCodeBlock)
+
+                // Check if this line is a quote
+                isQuote := strings.HasPrefix(strings.TrimSpace(line), "&gt;")
+
+                if inCodeBlock </span><span class="cov8" title="1">{
+                        // Don't wrap code blocks
+                        wrappedLines = append(wrappedLines, line)
+                }</span> else<span class="cov8" title="1"> if isQuote </span><span class="cov8" title="1">{
+                        // Wrap quote with prefix preserved
+                        wrapped, err := tw.wrapQuote(line, width, opts)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return "", err
+                        }</span>
+                        <span class="cov8" title="1">wrappedLines = append(wrappedLines, wrapped)</span>
+                } else<span class="cov8" title="1"> {
+                        // Normal wrapping with URL detection
+                        wrapped, err := tw.wrapWithURLDetection(line, width, opts, specialRanges, lineStart)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return "", err
+                        }</span>
+                        <span class="cov8" title="1">wrappedLines = append(wrappedLines, wrapped)</span>
+                }
+
+                // Update position (add line length + newline)
+                <span class="cov8" title="1">pos = lineEnd
+                if i &lt; len(lines)-1 </span><span class="cov8" title="1">{
+                        pos++ // for \n
+                }</span>
+        }
+
+        // Join wrapped lines with newlines
+        <span class="cov8" title="1">return strings.Join(wrappedLines, "\n"), nil</span>
+}
+
+// isInRange checks if a text range overlaps with any special format range
+func (tw *TextWrapper) isInRange(start, end int, ranges []Range, rangeType RangeType) bool <span class="cov8" title="1">{
+        for _, r := range ranges </span><span class="cov8" title="1">{
+                if r.Type == rangeType &amp;&amp; start &lt; r.End &amp;&amp; end &gt; r.Start </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+        <span class="cov8" title="1">return false</span>
+}
+
+// wrapQuote wraps a quoted line, preserving the quote prefix
+func (tw *TextWrapper) wrapQuote(line string, width int, opts TextWrapOptions) (string, error) <span class="cov8" title="1">{
+        // Extract quote prefix and content
+        trimmed := strings.TrimSpace(line)
+        if !strings.HasPrefix(trimmed, "&gt;") </span><span class="cov0" title="0">{
+                return tw.WrapLine(line, width, opts)
+        }</span>
+
+        // Remove quote prefix
+        <span class="cov8" title="1">content := strings.TrimSpace(trimmed[1:])
+
+        // Calculate available width for content (subtract "&gt; " prefix)
+        quotePrefix := "&gt; "
+        availableWidth := width - len(quotePrefix)
+        if availableWidth &lt; 5 </span><span class="cov0" title="0">{
+                // Width too small, return as-is
+                return line, nil
+        }</span>
+
+        // Wrap the content
+        <span class="cov8" title="1">wrapped, err := tw.WrapLine(content, availableWidth, opts)
+        if err != nil </span><span class="cov0" title="0">{
+                return "", err
+        }</span>
+
+        // Add quote prefix to each wrapped line
+        <span class="cov8" title="1">wrappedLines := strings.Split(wrapped, "\n")
+        for i := range wrappedLines </span><span class="cov8" title="1">{
+                wrappedLines[i] = quotePrefix + wrappedLines[i]
+        }</span>
+
+        <span class="cov8" title="1">return strings.Join(wrappedLines, "\n"), nil</span>
+}
+
+// wrapWithURLDetection wraps text with URL detection
+func (tw *TextWrapper) wrapWithURLDetection(line string, width int, opts TextWrapOptions, specialRanges []Range, lineStart int) (string, error) <span class="cov8" title="1">{
+        // For simplicity, use normal wrapping
+        // URL detection is already handled by SpecialFormatDetector
+        // URLs in ranges should not be split by word boundary
+        return tw.WrapLine(line, width, opts)
+}</span>
+
+// WrapLine wraps a single line of text (internal helper function).
+func (tw *TextWrapper) WrapLine(line string, width int, opts TextWrapOptions) (string, error) <span class="cov8" title="1">{
+        // Precondition: width &gt; 0
+        if width &lt;= 0 </span><span class="cov0" title="0">{
+                return "", fmt.Errorf("invalid width: %d", width)
+        }</span>
+
+        // Return empty string for empty line
+        <span class="cov8" title="1">if line == "" </span><span class="cov8" title="1">{
+                return "", nil
+        }</span>
+
+        // Calculate display width considering CJK characters and ANSI codes
+        <span class="cov8" title="1">displayWidth := ansi.PrintableRuneWidth(line)
+        if displayWidth &lt;= width </span><span class="cov8" title="1">{
+                return line, nil
+        }</span>
+
+        // Check if line contains any spaces
+        <span class="cov8" title="1">hasSpaces := strings.Contains(line, " ")
+
+        // If no spaces or very short width, use forced wrapping
+        if !hasSpaces || width &lt; 5 </span><span class="cov8" title="1">{
+                return tw.forcedWrapLine(line, width)
+        }</span>
+
+        // Use wordwrap for intelligent word boundary wrapping with ANSI awareness
+        <span class="cov8" title="1">ww := wordwrap.NewWriter(width)
+
+        // Add CJK punctuation as breakpoints if enabled
+        if opts.BreakAtCJKPunctuation </span><span class="cov8" title="1">{
+                ww.Breakpoints = append(ww.Breakpoints, '、', '。')
+        }</span>
+
+        // Write the line to the word wrapper
+        <span class="cov8" title="1">_, err := ww.Write([]byte(line))
+        if err != nil </span><span class="cov0" title="0">{
+                // If wordwrap fails, fall back to forced wrapping
+                return tw.forcedWrapLine(line, width)
+        }</span>
+
+        // Close the writer and get the result
+        <span class="cov8" title="1">if err := ww.Close(); err != nil </span><span class="cov0" title="0">{
+                // If close fails, fall back to forced wrapping
+                return tw.forcedWrapLine(line, width)
+        }</span>
+
+        // Get wrapped result
+        <span class="cov8" title="1">wrapped := ww.String()
+
+        // Remove trailing newline if present (wordwrap adds it)
+        wrapped = strings.TrimSuffix(wrapped, "\n")
+
+        return wrapped, nil</span>
+}
+
+// forcedWrapLine performs forced wrapping when wordwrap is not suitable.
+// It considers CJK character widths and preserves ANSI escape sequences.
+func (tw *TextWrapper) forcedWrapLine(line string, width int) (string, error) <span class="cov8" title="1">{
+        // Calculate display width using ANSI-aware function
+        displayWidth := ansi.PrintableRuneWidth(line)
+        if displayWidth &lt;= width </span><span class="cov0" title="0">{
+                return line, nil
+        }</span>
+
+        // Forced wrapping: split line into chunks considering display width
+        <span class="cov8" title="1">var result strings.Builder
+        var currentWidth int
+        var currentChunk strings.Builder
+
+        // Track ANSI sequences
+        inAnsi := false
+        var ansiBuffer strings.Builder
+
+        for _, r := range line </span><span class="cov8" title="1">{
+                // Check if this is an ANSI escape sequence start
+                if r == '\033' </span><span class="cov8" title="1">{
+                        inAnsi = true
+                        ansiBuffer.Reset()
+                        ansiBuffer.WriteRune(r)
+                        continue</span>
+                }
+
+                // Continue building ANSI sequence
+                <span class="cov8" title="1">if inAnsi </span><span class="cov8" title="1">{
+                        ansiBuffer.WriteRune(r)
+                        // ANSI sequences end with a letter
+                        if (r &gt;= 'A' &amp;&amp; r &lt;= 'Z') || (r &gt;= 'a' &amp;&amp; r &lt;= 'z') </span><span class="cov8" title="1">{
+                                inAnsi = false
+                                currentChunk.WriteString(ansiBuffer.String())
+                        }</span>
+                        <span class="cov8" title="1">continue</span>
+                }
+
+                // Calculate display width of this rune
+                <span class="cov8" title="1">runeDisplayWidth := runewidth.RuneWidth(r)
+
+                // Check if adding this rune exceeds width
+                if currentWidth+runeDisplayWidth &gt; width &amp;&amp; currentWidth &gt; 0 </span><span class="cov8" title="1">{
+                        // Write current chunk to result
+                        if result.Len() &gt; 0 </span><span class="cov8" title="1">{
+                                result.WriteRune('\n')
+                        }</span>
+                        <span class="cov8" title="1">result.WriteString(currentChunk.String())
+
+                        // Start new chunk
+                        currentChunk.Reset()
+                        currentWidth = 0</span>
+                }
+
+                // Add rune to current chunk
+                <span class="cov8" title="1">currentChunk.WriteRune(r)
+                currentWidth += runeDisplayWidth</span>
+        }
+
+        // Write final chunk
+        <span class="cov8" title="1">if currentChunk.Len() &gt; 0 </span><span class="cov8" title="1">{
+                if result.Len() &gt; 0 </span><span class="cov8" title="1">{
+                        result.WriteRune('\n')
+                }</span>
+                <span class="cov8" title="1">result.WriteString(currentChunk.String())</span>
+        }
+
+        <span class="cov8" title="1">return result.String(), nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file26" style="display: none">package user
 
 type User struct {
         ID          string
@@ -5717,7 +6336,7 @@ func (u *User) GetColor() *string <span class="cov8" title="1">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file24" style="display: none">package usercolor
+		<pre class="file" id="file27" style="display: none">package usercolor
 
 import (
         lru "github.com/hashicorp/golang-lru/v2"
@@ -5783,7 +6402,7 @@ func (c *lruCache) Len() int <span class="cov8" title="1">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file25" style="display: none">package usercolor
+		<pre class="file" id="file28" style="display: none">package usercolor
 
 import (
         "fmt"
@@ -5829,7 +6448,7 @@ func FromHex(hex string) (Color, error) <span class="cov8" title="1">{
 }
 </pre>
 		
-		<pre class="file" id="file26" style="display: none">package usercolor
+		<pre class="file" id="file29" style="display: none">package usercolor
 
 import (
         "crypto/sha1"

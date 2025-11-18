@@ -11,7 +11,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/yanosea/gosl/internal/app/port"
 	"github.com/yanosea/gosl/internal/domain/message"
+	"github.com/yanosea/gosl/internal/domain/textwrap"
 	"github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
@@ -38,6 +40,8 @@ type MessageViewModel struct {
 	sender             MessageSender
 	isDarkBackground   bool
 	userColorService   usercolor.Service
+	textWrapper        *textwrap.TextWrapper    // Text wrapping service
+	textWrapConfig     *port.TextWrapConfig     // Text wrapping configuration
 }
 
 func NewMessageViewModel(channelID string, width, height int) MessageViewModel {
@@ -68,6 +72,9 @@ func NewMessageViewModelWithColorService(channelID string, width, height int, se
 	ta.ShowLineNumbers = false
 	ta.Blur() // Start with viewport focused
 
+	// Initialize text wrapper with default configuration (wrapping disabled until config is set)
+	defaultConfig := port.DefaultTextWrapConfig()
+
 	return MessageViewModel{
 		viewport:           vp,
 		messages:           []message.Message{},
@@ -83,7 +90,15 @@ func NewMessageViewModelWithColorService(channelID string, width, height int, se
 		inputFocused:       false,
 		sender:             sender,
 		userColorService:   colorService,
+		textWrapper:        textwrap.NewTextWrapper(),
+		textWrapConfig:     &defaultConfig,
 	}
+}
+
+// getCacheKey generates a cache key in the format "messageID-width"
+// This ensures cache entries are invalidated when terminal width changes.
+func getCacheKey(messageID string, width int) string {
+	return fmt.Sprintf("%s-%d", messageID, width)
 }
 
 func (m MessageViewModel) Init() tea.Cmd {
@@ -213,8 +228,9 @@ func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) {
 		m.inputArea.SetWidth(msg.Width - 4)
 		m.inputArea.SetHeight(inputHeight)
 
-		// Clear cache if width changed (lipgloss rendering may differ)
+		// Clear cache if width changed (lipgloss rendering and text wrapping may differ)
 		if oldWidth != m.width {
+			m.renderCache.InvalidateAll()
 			m.messageLineHeights = make(map[string]int)
 		}
 
@@ -432,7 +448,8 @@ func (m *MessageViewModel) renderMessages() string {
 
 func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Message, selected bool) {
 	if !selected {
-		if cached, found := m.renderCache.Get(msg.ID); found {
+		cacheKey := getCacheKey(msg.ID, m.viewport.Width)
+		if cached, found := m.renderCache.Get(cacheKey); found {
 			sb.WriteString(cached)
 			return
 		}
@@ -466,6 +483,9 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
 
 	highlightedText := m.highlightText(msg.Text)
 
+	// Apply text wrapping after highlighting, before styling
+	wrappedText := m.wrapText(highlightedText)
+
 	// Apply user-specific background color if colorService is available
 	var messageStyle lipgloss.Style
 	if m.userColorService != nil {
@@ -490,7 +510,7 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
 		messageStyle = lipgloss.NewStyle()
 	}
 
-	lines := strings.Split(highlightedText, "\n")
+	lines := strings.Split(wrappedText, "\n")
 	for i, line := range lines {
 		if i > 0 {
 			msgBuilder.WriteString("\n")
@@ -514,7 +534,12 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
 	rendered := msgBuilder.String()
 
 	if !selected {
-		m.renderCache.Set(msg.ID, rendered)
+		cacheKey := getCacheKey(msg.ID, m.viewport.Width)
+		m.renderCache.Set(cacheKey, rendered)
+
+		// Update messageLineHeights cache
+		lineCount := strings.Count(rendered, "\n")
+		m.messageLineHeights[cacheKey] = lineCount
 	}
 
 	sb.WriteString(rendered)
@@ -563,6 +588,55 @@ func (m *MessageViewModel) highlightMentions(text string) string {
 	}
 
 	return text
+}
+
+// wrapText wraps text according to terminal width and configuration.
+// It calculates the available width by subtracting message text indent and user color padding
+// from the viewport width.
+func (m *MessageViewModel) wrapText(text string) string {
+	// Return text as-is if text wrapper or config is not available
+	if m.textWrapper == nil || m.textWrapConfig == nil {
+		return text
+	}
+
+	// Return text as-is if wrapping is disabled
+	if !m.textWrapConfig.Enabled {
+		return text
+	}
+
+	// Calculate available width for text
+	// Subtract messageTextIndent (5 spaces) and user color padding if applicable
+	availableWidth := m.viewport.Width - messageTextIndent
+
+	// If user color service is enabled, subtract additional padding (2 spaces for left+right padding)
+	if m.userColorService != nil {
+		availableWidth -= 2 // Padding(0, 1) adds 1 space on each side
+	}
+
+	// Ensure minimum width
+	if availableWidth < 10 {
+		// If width is too small, return text as-is to avoid errors
+		return text
+	}
+
+	// Use MaxLineWidth from config if set, otherwise use available width
+	wrapWidth := availableWidth
+	if m.textWrapConfig.MaxLineWidth > 0 && m.textWrapConfig.MaxLineWidth < availableWidth {
+		wrapWidth = m.textWrapConfig.MaxLineWidth
+	}
+
+	// Convert config to domain TextWrapOptions
+	opts := m.textWrapConfig.ToOptions()
+
+	// Wrap text using the TextWrapper
+	wrapped, err := m.textWrapper.WrapText(text, wrapWidth, opts)
+	if err != nil {
+		// On error, log and return original text (graceful degradation)
+		// TODO: Add proper error logging when logger is available
+		return text
+	}
+
+	return wrapped
 }
 
 func findAllMatches(text, pattern string) []string {
@@ -648,7 +722,8 @@ func (m *MessageViewModel) scrollToSelected() {
 	}
 
 	// 2. Get or calculate selected message height
-	selectedMessageHeight, ok := m.messageLineHeights[m.selectedMessageID]
+	selectedCacheKey := getCacheKey(m.selectedMessageID, m.viewport.Width)
+	selectedMessageHeight, ok := m.messageLineHeights[selectedCacheKey]
 	if !ok {
 		// Cache miss: render message and count lines
 		sb := m.stringBuilders.Get()
@@ -657,13 +732,14 @@ func (m *MessageViewModel) scrollToSelected() {
 		sb.WriteString("\n")
 		rendered := sb.String()
 		selectedMessageHeight = strings.Count(rendered, "\n")
-		m.messageLineHeights[m.selectedMessageID] = selectedMessageHeight
+		m.messageLineHeights[selectedCacheKey] = selectedMessageHeight
 	}
 
 	// 3. Calculate selected message line start position
 	selectedLineStart := 0
 	for i := 0; i < m.selectedIndex; i++ {
-		msgHeight, ok := m.messageLineHeights[m.messages[i].ID]
+		msgCacheKey := getCacheKey(m.messages[i].ID, m.viewport.Width)
+		msgHeight, ok := m.messageLineHeights[msgCacheKey]
 		if !ok {
 			// Cache miss: render and calculate line height
 			msgSB := m.stringBuilders.Get()
@@ -671,7 +747,7 @@ func (m *MessageViewModel) scrollToSelected() {
 			msgSB.WriteString("\n")
 			rendered := msgSB.String()
 			msgHeight = strings.Count(rendered, "\n")
-			m.messageLineHeights[m.messages[i].ID] = msgHeight
+			m.messageLineHeights[msgCacheKey] = msgHeight
 			m.stringBuilders.Put(msgSB)
 		}
 		selectedLineStart += msgHeight

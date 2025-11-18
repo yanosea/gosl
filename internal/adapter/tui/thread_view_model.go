@@ -11,7 +11,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/yanosea/gosl/internal/app/port"
 	"github.com/yanosea/gosl/internal/domain/message"
+	"github.com/yanosea/gosl/internal/domain/textwrap"
 	"github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
@@ -34,6 +36,8 @@ type ThreadViewModel struct {
 	sender             MessageSender
 	isDarkBackground   bool
 	userColorService   usercolor.Service
+	textWrapper        *textwrap.TextWrapper // Text wrapping service
+	textWrapConfig     *port.TextWrapConfig  // Text wrapping configuration
 }
 
 // NewThreadViewModel creates a new ThreadViewModel instance.
@@ -67,6 +71,13 @@ func NewThreadViewModelWithColorService(channelID, threadTS string, width, heigh
 	ta.ShowLineNumbers = false
 	ta.Blur() // Start with viewport focused
 
+	// Initialize text wrapping with default config
+	defaultConfig := port.TextWrapConfig{
+		Enabled:               true,
+		MaxLineWidth:          0, // Use terminal width
+		BreakAtCJKPunctuation: true,
+	}
+
 	return ThreadViewModel{
 		viewport:           vp,
 		parentMessage:      message.Message{},
@@ -83,6 +94,8 @@ func NewThreadViewModelWithColorService(channelID, threadTS string, width, heigh
 		inputFocused:       false,
 		sender:             sender,
 		userColorService:   colorService,
+		textWrapper:        textwrap.NewTextWrapper(),
+		textWrapConfig:     &defaultConfig,
 	}
 }
 
@@ -582,6 +595,7 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
 
 	// Message text (with indentation)
 	highlightedText := m.highlightText(msg.Text)
+	wrappedText := m.wrapText(highlightedText, indent)
 
 	// Calculate base indentation for message text
 	baseIndent := "  " + strings.Repeat(" ", indent) + "   "
@@ -611,7 +625,7 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
 	}
 
 	// Handle multi-line messages by adding proper indentation to each line
-	textLines := strings.Split(highlightedText, "\n")
+	textLines := strings.Split(wrappedText, "\n")
 	for i, line := range textLines {
 		if i > 0 {
 			sb.WriteString("\n")
@@ -685,6 +699,7 @@ func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent i
 	// Message text (with indentation)
 	// Apply highlighting (reuse from MessageViewModel)
 	highlightedText := m.highlightText(msg.Text)
+	wrappedText := m.wrapText(highlightedText, indent)
 
 	// Calculate base indentation for message text
 	baseIndent := "  " + strings.Repeat(" ", indent) + "   "
@@ -714,7 +729,7 @@ func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent i
 	}
 
 	// Handle multi-line messages by adding proper indentation to each line
-	textLines := strings.Split(highlightedText, "\n")
+	textLines := strings.Split(wrappedText, "\n")
 	for _, line := range textLines {
 		if m.userColorService != nil {
 			lines = append(lines, baseIndent+messageStyle.Render(line))
@@ -779,6 +794,58 @@ func (m *ThreadViewModel) highlightMentions(text string) string {
 	}
 
 	return text
+}
+
+// wrapText wraps the given text to fit within the available width, accounting for indentation.
+// indent specifies the number of spaces used for reply indentation (0 for parent, 2+ for replies).
+// The available width is calculated by subtracting the base indentation (selection indicator + thread indicator)
+// and user color padding (if applicable) from the viewport width.
+func (m *ThreadViewModel) wrapText(text string, indent int) string {
+	// Return text as-is if text wrapper or config is not available
+	if m.textWrapper == nil || m.textWrapConfig == nil {
+		return text
+	}
+
+	// Return text as-is if wrapping is disabled
+	if !m.textWrapConfig.Enabled {
+		return text
+	}
+
+	// Calculate base indentation: selection indicator (2) + indent + thread indicator (3)
+	baseIndentLen := 2 + indent + 3
+
+	// Calculate available width for text
+	availableWidth := m.width - baseIndentLen
+
+	// If user color service is enabled, subtract additional padding (2 spaces for left+right padding)
+	if m.userColorService != nil {
+		availableWidth -= 2 // Padding(0, 1) adds 1 space on each side
+	}
+
+	// Ensure minimum width
+	if availableWidth < 10 {
+		// If width is too small, return text as-is to avoid errors
+		return text
+	}
+
+	// Use MaxLineWidth from config if set, otherwise use available width
+	wrapWidth := availableWidth
+	if m.textWrapConfig.MaxLineWidth > 0 && m.textWrapConfig.MaxLineWidth < availableWidth {
+		wrapWidth = m.textWrapConfig.MaxLineWidth
+	}
+
+	// Convert config to domain TextWrapOptions
+	opts := m.textWrapConfig.ToOptions()
+
+	// Wrap text using the TextWrapper
+	wrapped, err := m.textWrapper.WrapText(text, wrapWidth, opts)
+	if err != nil {
+		// On error, log and return original text (graceful degradation)
+		// TODO: Add proper error logging when logger is available
+		return text
+	}
+
+	return wrapped
 }
 
 // renderThread renders all thread messages as a single string for the viewport.

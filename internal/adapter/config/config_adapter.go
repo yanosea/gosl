@@ -91,6 +91,8 @@ func (a *ConfigAdapter) Load(ctx context.Context) (*port.Config, error) {
 		return nil, err
 	}
 
+	a.applyTextWrapDefaults(&config)
+
 	return &config, nil
 }
 
@@ -126,6 +128,7 @@ func (a *ConfigAdapter) GenerateTemplate(ctx context.Context) error {
 		DefaultChannel: "general",
 		MessageLimit:   DefaultMessageLimit,
 		LogLevel:       "info",
+		TextWrap:       port.DefaultTextWrapConfig(),
 	}
 
 	return a.Save(ctx, template)
@@ -161,4 +164,15 @@ func (a *ConfigAdapter) validateAndCorrect(config *port.Config) error {
 	}
 
 	return nil
+}
+
+func (a *ConfigAdapter) applyTextWrapDefaults(config *port.Config) {
+	if config.TextWrap == (port.TextWrapConfig{}) {
+		config.TextWrap = port.DefaultTextWrapConfig()
+		return
+	}
+
+	if config.TextWrap.MaxLineWidth < 0 || (config.TextWrap.MaxLineWidth > 0 && (config.TextWrap.MaxLineWidth < 20 || config.TextWrap.MaxLineWidth > 500)) {
+		config.TextWrap.MaxLineWidth = 0
+	}
 }
