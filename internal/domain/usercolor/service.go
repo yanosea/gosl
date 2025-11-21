@@ -51,23 +51,45 @@ func NewUserColorService(cache Cache) Service {
 	}
 }
 
-// GenerateColorFromID generates consistent color from userID using XEP-0392 algorithm
+// GenerateColorFromID generates consistent color from userID using hash-based color generation
+// with independent hash mixing for each parameter to maximize color diversity.
 func (s *userColorService) GenerateColorFromID(userID string) AdaptiveColor {
-	// Step 1: Generate hash using SHA-1
-	hash := sha1.Sum([]byte(userID))
+	// Step 1: Generate base hash using SHA-1
+	baseHash := sha1.Sum([]byte(userID))
 
-	// Step 2: Extract least-significant 16 bits (first 2 bytes, little-endian)
-	value := binary.LittleEndian.Uint16(hash[:2])
+	// Step 2: Generate independent hashes for each parameter using domain separation
+	// This ensures that even if base hash bytes are similar, the derived values differ significantly
+	hueHash := sha1.Sum(append([]byte("HUE:"), baseHash[:]...))
+	lightnessHash := sha1.Sum(append([]byte("LIGHTNESS:"), baseHash[:]...))
+	saturationHash := sha1.Sum(append([]byte("SATURATION:"), baseHash[:]...))
 
-	// Step 3: Calculate hue angle: (value / 65536) * 360
-	hue := (float64(value) / 65536.0) * 360.0
+	// Step 3: Extract values from independent hashes
+	// Hue: Use first 2 bytes from hue-specific hash
+	hueValue := binary.LittleEndian.Uint16(hueHash[:2])
+	hue := (float64(hueValue) / 65536.0) * 360.0
 
-	// Step 4: Generate light and dark theme variants using HSLuv
-	// HSLuv parameters: Hue in [0..360], Saturation in [0..1], Lightness in [0..1]
-	// Light theme: darker colors (lightness=0.50, saturation=0.70)
-	lightColor := colorful.HSLuv(hue, 0.70, 0.50)
-	// Dark theme: lighter colors (lightness=0.70, saturation=0.60)
-	darkColor := colorful.HSLuv(hue, 0.60, 0.70)
+	// Lightness: Use first byte from lightness-specific hash
+	lightnessValue := uint8(lightnessHash[0])
+
+	// Saturation: Use first byte from saturation-specific hash
+	saturationValue := uint8(saturationHash[0])
+
+	// Step 4: Map extracted values to appropriate ranges using standard HSL
+	// Light theme: Wide lightness range [0.25, 0.65] for maximum distinguishability
+	//              Full saturation range [0.50, 1.00] for vibrant, varied colors
+	lightLightness := 0.25 + (float64(lightnessValue)/255.0)*0.40   // 40% range
+	lightSaturation := 0.50 + (float64(saturationValue)/255.0)*0.50 // 50% range
+
+	// Dark theme: Wide lightness range [0.55, 0.90] for visibility on dark backgrounds
+	//             Wide saturation [0.40, 0.90] for varied but visible colors
+	darkLightness := 0.55 + (float64(lightnessValue)/255.0)*0.35   // 35% range
+	darkSaturation := 0.40 + (float64(saturationValue)/255.0)*0.50 // 50% range
+
+	// Step 5: Generate colors using standard HSL for better color diversity
+	// Note: Using Hsl() instead of HSLuv() because HSLuv makes all colors
+	// appear too similar due to perceptual uniformity
+	lightColor := colorful.Hsl(hue, lightSaturation, lightLightness)
+	darkColor := colorful.Hsl(hue, darkSaturation, darkLightness)
 
 	return AdaptiveColor{
 		Light: Color{
