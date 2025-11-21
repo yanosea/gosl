@@ -28,20 +28,26 @@ type MessageViewModel struct {
 	selectedIndex      int
 	selectedMessageID  string
 	channelID          string
+	channelName        string
+	channelType        string
 	nextCursor         string
 	width              int
 	height             int
 	renderCache        *RenderCache
 	stringBuilders     *StringBuilderPool
-	messageLineHeights map[string]int // NEW: Line height cache for scroll position calculation
+	messageLineHeights map[string]int // Line height cache for scroll position calculation
 	isInitialized      bool
 	inputArea          textarea.Model
 	inputFocused       bool
 	sender             MessageSender
 	isDarkBackground   bool
 	userColorService   usercolor.Service
-	textWrapper        *textwrap.TextWrapper    // Text wrapping service
-	textWrapConfig     *port.TextWrapConfig     // Text wrapping configuration
+	textWrapper        *textwrap.TextWrapper // Text wrapping service
+	textWrapConfig     *port.TextWrapConfig  // Text wrapping configuration
+	// Cached styles to reduce lipgloss allocations
+	timestampStyle lipgloss.Style
+	threadStyle    lipgloss.Style
+	faintStyle     lipgloss.Style
 }
 
 func NewMessageViewModel(channelID string, width, height int) MessageViewModel {
@@ -75,6 +81,17 @@ func NewMessageViewModelWithColorService(channelID string, width, height int, se
 	// Initialize text wrapper with default configuration (wrapping disabled until config is set)
 	defaultConfig := port.DefaultTextWrapConfig()
 
+	// Pre-create cached styles to avoid repeated lipgloss allocations
+	timestampStyle := lipgloss.NewStyle().
+		Faint(true).
+		Foreground(lipgloss.Color("8"))
+
+	threadStyle := lipgloss.NewStyle().
+		Faint(true).
+		Foreground(lipgloss.Color("4"))
+
+	faintStyle := lipgloss.NewStyle().Faint(true)
+
 	return MessageViewModel{
 		viewport:           vp,
 		messages:           []message.Message{},
@@ -85,13 +102,16 @@ func NewMessageViewModelWithColorService(channelID string, width, height int, se
 		height:             height,
 		renderCache:        NewRenderCache(),
 		stringBuilders:     NewStringBuilderPool(),
-		messageLineHeights: make(map[string]int), // Initialize line height cache
+		messageLineHeights: make(map[string]int),
 		inputArea:          ta,
 		inputFocused:       false,
 		sender:             sender,
 		userColorService:   colorService,
 		textWrapper:        textwrap.NewTextWrapper(),
 		textWrapConfig:     &defaultConfig,
+		timestampStyle:     timestampStyle,
+		threadStyle:        threadStyle,
+		faintStyle:         faintStyle,
 	}
 }
 
@@ -305,14 +325,32 @@ func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) {
 }
 
 func (m MessageViewModel) View() string {
-	var sb strings.Builder
+	sb := m.stringBuilders.Get()
+	defer m.stringBuilders.Put(sb)
 
-	// Header: Channel indicator
+	// Header: Channel indicator (create style once per view)
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("2")).
 		Padding(0, 1)
-	sb.WriteString(headerStyle.Render(fmt.Sprintf("# %s", m.channelID)))
+
+	displayName := m.channelName
+	if displayName == "" {
+		displayName = m.channelID
+	}
+
+	// Add emoji based on channel type
+	emoji := ""
+	switch m.channelType {
+	case "public":
+		emoji = "📢 "
+	case "private":
+		emoji = "🔒 "
+	case "dm":
+		emoji = "💬 "
+	}
+
+	sb.WriteString(headerStyle.Render(fmt.Sprintf("%s%s", emoji, displayName)))
 	sb.WriteString("\n\n")
 
 	// Viewport content
@@ -320,29 +358,25 @@ func (m MessageViewModel) View() string {
 	sb.WriteString("\n")
 
 	// Input area separator
-	separatorStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8"))
 	separator := strings.Repeat("─", m.width)
-	sb.WriteString(separatorStyle.Render(separator))
+	sb.WriteString(m.faintStyle.Foreground(lipgloss.Color("8")).Render(separator))
 	sb.WriteString("\n")
 
 	// Input area
+	borderColor := lipgloss.Color("6")
+	if m.inputFocused {
+		borderColor = lipgloss.Color("2")
+	}
 	inputBoxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("6")).
+		BorderForeground(borderColor).
 		Padding(0, 1)
-
-	if m.inputFocused {
-		inputBoxStyle = inputBoxStyle.BorderForeground(lipgloss.Color("2"))
-	}
 
 	sb.WriteString(inputBoxStyle.Render(m.inputArea.View()))
 	sb.WriteString("\n")
 
-	// Footer: Help text
-	footerStyle := lipgloss.NewStyle().
-		Faint(true).
-		Padding(0, 1)
+	// Footer: Help text (reuse faint style)
+	footerStyle := m.faintStyle.Padding(0, 1)
 
 	var footer string
 	if m.inputFocused {
@@ -352,7 +386,9 @@ func (m MessageViewModel) View() string {
 	}
 	sb.WriteString(footerStyle.Render(footer))
 
-	return sb.String()
+	result := sb.String()
+	sb.Reset()
+	return result
 }
 
 func (m *MessageViewModel) SetMessages(messages []message.Message, cursor string) {
@@ -458,17 +494,35 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
 	msgBuilder := m.stringBuilders.Get()
 	defer m.stringBuilders.Put(msgBuilder)
 
+	// Apply user-specific background color to username if colorService is available
 	userStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("2"))
+		Bold(true)
 
-	timestampStyle := lipgloss.NewStyle().
-		Faint(true).
-		Foreground(lipgloss.Color("8"))
+	if m.userColorService != nil {
+		// Generate color from UserID
+		adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
 
-	threadStyle := lipgloss.NewStyle().
-		Faint(true).
-		Foreground(lipgloss.Color("4"))
+		// Select appropriate color based on terminal theme
+		var bgColor usercolor.Color
+		if m.isDarkBackground {
+			bgColor = adaptiveColor.Dark
+		} else {
+			bgColor = adaptiveColor.Light
+		}
+
+		// Apply background color to username
+		userStyle = userStyle.
+			Background(lipgloss.Color(bgColor.ToHex())).
+			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
+			Padding(0, 1)
+	} else {
+		// No color service - use default green foreground
+		userStyle = userStyle.Foreground(lipgloss.Color("2"))
+	}
+
+	// Use cached styles instead of creating new ones
+	timestampStyle := m.timestampStyle
+	threadStyle := m.threadStyle
 
 	if selected {
 		msgBuilder.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render("> "))
@@ -483,44 +537,17 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
 
 	highlightedText := m.highlightText(msg.Text)
 
-	// Apply text wrapping after highlighting, before styling
+	// Apply text wrapping after highlighting
 	wrappedText := m.wrapText(highlightedText)
 
-	// Apply user-specific background color if colorService is available
-	var messageStyle lipgloss.Style
-	if m.userColorService != nil {
-		// Generate color from UserID
-		adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
-
-		// Select appropriate color based on terminal theme
-		var bgColor usercolor.Color
-		if m.isDarkBackground {
-			bgColor = adaptiveColor.Dark
-		} else {
-			bgColor = adaptiveColor.Light
-		}
-
-		// Create style with background color and contrasting foreground
-		messageStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(bgColor.ToHex())).
-			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
-			Padding(0, 1)
-	} else {
-		// No color service - use default style
-		messageStyle = lipgloss.NewStyle()
-	}
-
+	// Render message text without background color
 	lines := strings.Split(wrappedText, "\n")
 	for i, line := range lines {
 		if i > 0 {
 			msgBuilder.WriteString("\n")
 		}
 		msgBuilder.WriteString(strings.Repeat(" ", messageTextIndent))
-		if m.userColorService != nil {
-			msgBuilder.WriteString(messageStyle.Render(line))
-		} else {
-			msgBuilder.WriteString(line)
-		}
+		msgBuilder.WriteString(line)
 	}
 
 	if msg.ReplyCount > 0 {

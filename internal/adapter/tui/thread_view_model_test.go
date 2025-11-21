@@ -479,19 +479,19 @@ func TestThreadViewModel_RenderThreadMessageLinesWithUserColors(t *testing.T) {
 		t.Errorf("Expected GenerateColorFromID to be called at least 3 times, got %d", colorService.generateCallCount)
 	}
 
-	// Verify that messageStyle.Render() added padding (indicated by trailing space after message text)
-	// When Lipgloss Padding(0, 1) is applied, it adds a space after the text
-	hasStyledMessage := false
+	// Verify that userStyle.Render() added padding to usernames (indicated by spaces around username)
+	// When Lipgloss Padding(0, 1) is applied to usernames, it adds spaces before and after the username
+	hasStyledUsername := false
 	for _, line := range allLines {
-		// Look for message lines with trailing space (indicating Lipgloss padding was applied)
-		if strings.Contains(line, "Parent message ") || strings.Contains(line, "First reply ") || strings.Contains(line, "Second reply ") {
-			hasStyledMessage = true
+		// Look for usernames with padding (spaces before and after: " Alice ", " Bob ")
+		if strings.Contains(line, " Alice ") || strings.Contains(line, " Bob ") {
+			hasStyledUsername = true
 			break
 		}
 	}
 
-	if !hasStyledMessage {
-		t.Error("Expected styled messages with padding (indicated by trailing space)")
+	if !hasStyledUsername {
+		t.Error("Expected styled usernames with padding (indicated by spaces around username)")
 	}
 }
 
@@ -580,20 +580,32 @@ func TestThreadViewModel_RenderThreadMessageLinesMultiline(t *testing.T) {
 	// Render all thread lines
 	allLines := model.getAllThreadLines()
 
-	// Count lines with padding (indicating styled lines)
-	// Each line from the 3-line message should have Lipgloss padding applied
-	styledLineCount := 0
+	// Verify that multi-line message text is rendered correctly
+	// Each line from the 3-line message should appear in the output
+	messageLineCount := 0
 	for _, line := range allLines {
-		// Look for lines with "Line X " (with trailing space from padding)
-		if strings.Contains(line, "Line 1 ") || strings.Contains(line, "Line 2 ") || strings.Contains(line, "Line 3 ") {
-			styledLineCount++
+		// Look for lines with "Line X" (message text lines, without trailing space)
+		if strings.Contains(line, "Line 1") || strings.Contains(line, "Line 2") || strings.Contains(line, "Line 3") {
+			messageLineCount++
 		}
 	}
 
-	// Each line of the multi-line message should have background color applied
+	// Each line of the multi-line message should be present in the output
 	// (at least 3 lines for the 3-line message text)
-	if styledLineCount < 3 {
-		t.Errorf("Expected at least 3 styled lines for multi-line message, got %d", styledLineCount)
+	if messageLineCount < 3 {
+		t.Errorf("Expected at least 3 message text lines for multi-line message, got %d", messageLineCount)
+	}
+
+	// Verify that the username has background color/padding applied
+	hasStyledUsername := false
+	for _, line := range allLines {
+		if strings.Contains(line, " Alice ") {
+			hasStyledUsername = true
+			break
+		}
+	}
+	if !hasStyledUsername {
+		t.Error("Expected styled username with padding")
 	}
 }
 
@@ -643,17 +655,30 @@ func TestThreadViewModel_RenderThreadMessageLinesIsDarkBackground(t *testing.T) 
 				t.Error("getAllThreadLines() returned empty array")
 			}
 
-			// Verify that messageStyle.Render() was applied (indicated by padding)
-			hasStyledMessage := false
+			// Verify that userStyle.Render() was applied to username (indicated by padding around username)
+			hasStyledUsername := false
 			for _, line := range allLines {
-				if strings.Contains(line, "Test message ") {
-					hasStyledMessage = true
+				if strings.Contains(line, " Alice ") {
+					hasStyledUsername = true
 					break
 				}
 			}
 
-			if !hasStyledMessage {
-				t.Error("Expected styled message with padding")
+			if !hasStyledUsername {
+				t.Error("Expected styled username with padding")
+			}
+
+			// Verify that the message text is present
+			hasMessageText := false
+			for _, line := range allLines {
+				if strings.Contains(line, "Test message") {
+					hasMessageText = true
+					break
+				}
+			}
+
+			if !hasMessageText {
+				t.Error("Expected message text to be rendered")
 			}
 		})
 	}

@@ -63,9 +63,9 @@
 				
 				<option value="file3">github.com/yanosea/gosl/internal/adapter/slack/slack_adapter.go (0.0%)</option>
 				
-				<option value="file4">github.com/yanosea/gosl/internal/adapter/tui/app_model.go (35.7%)</option>
+				<option value="file4">github.com/yanosea/gosl/internal/adapter/tui/app_model.go (34.4%)</option>
 				
-				<option value="file5">github.com/yanosea/gosl/internal/adapter/tui/channel_list_model.go (88.8%)</option>
+				<option value="file5">github.com/yanosea/gosl/internal/adapter/tui/channel_list_model.go (88.4%)</option>
 				
 				<option value="file6">github.com/yanosea/gosl/internal/adapter/tui/event_dispatcher.go (75.0%)</option>
 				
@@ -73,7 +73,7 @@
 				
 				<option value="file8">github.com/yanosea/gosl/internal/adapter/tui/message_input_model.go (62.6%)</option>
 				
-				<option value="file9">github.com/yanosea/gosl/internal/adapter/tui/message_view_model.go (79.0%)</option>
+				<option value="file9">github.com/yanosea/gosl/internal/adapter/tui/message_view_model.go (78.8%)</option>
 				
 				<option value="file10">github.com/yanosea/gosl/internal/adapter/tui/messages.go (0.0%)</option>
 				
@@ -83,7 +83,7 @@
 				
 				<option value="file13">github.com/yanosea/gosl/internal/adapter/tui/string_pool.go (100.0%)</option>
 				
-				<option value="file14">github.com/yanosea/gosl/internal/adapter/tui/thread_view_model.go (75.8%)</option>
+				<option value="file14">github.com/yanosea/gosl/internal/adapter/tui/thread_view_model.go (74.8%)</option>
 				
 				<option value="file15">github.com/yanosea/gosl/internal/app/port/config_repository.go (0.0%)</option>
 				
@@ -793,7 +793,7 @@ func (a *SlackAdapter) GetChannels(ctx context.Context) ([]channel.Channel, erro
                 }</span>
 
                 <span class="cov0" title="0">for _, conv := range result.conversations </span><span class="cov0" title="0">{
-                        ch := convertToChannel(conv)
+                        ch := a.convertToChannel(ctx, conv)
                         allChannels = append(allChannels, ch)
                 }</span>
 
@@ -851,7 +851,7 @@ func (a *SlackAdapter) GetMessages(ctx context.Context, channelID string, limit 
                 msg := history.Messages[i]
                 userName := msg.User
                 if userInfo, ok := userInfoMap[msg.User]; ok </span><span class="cov0" title="0">{
-                        userName = userInfo.Name
+                        userName = getUserDisplayName(userInfo, msg.User)
                 }</span>
 
                 <span class="cov0" title="0">ts := parseSlackTimestamp(msg.Timestamp)
@@ -925,7 +925,7 @@ func (a *SlackAdapter) GetThreadReplies(ctx context.Context, channelID, threadTS
         parentSlackMsg := msgs[0]
         userName := parentSlackMsg.User
         if userInfo, ok := userInfoMap[parentSlackMsg.User]; ok </span><span class="cov0" title="0">{
-                userName = userInfo.Name
+                userName = getUserDisplayName(userInfo, parentSlackMsg.User)
         }</span>
 
         <span class="cov0" title="0">ts := parseSlackTimestamp(parentSlackMsg.Timestamp)
@@ -946,7 +946,7 @@ func (a *SlackAdapter) GetThreadReplies(ctx context.Context, channelID, threadTS
                 replyMsg := msgs[i]
                 replyUserName := replyMsg.User
                 if userInfo, ok := userInfoMap[replyMsg.User]; ok </span><span class="cov0" title="0">{
-                        replyUserName = userInfo.Name
+                        replyUserName = getUserDisplayName(userInfo, replyMsg.User)
                 }</span>
 
                 <span class="cov0" title="0">replyTS := parseSlackTimestamp(replyMsg.Timestamp)
@@ -1180,7 +1180,7 @@ func (a *SlackAdapter) handleMessageEventV2(ev *slackevents.MessageEvent) <span 
 
         <span class="cov0" title="0">userName := ev.User
         if userInfo, err := a.getUserInfo(context.Background(), ev.User); err == nil </span><span class="cov0" title="0">{
-                userName = userInfo.Name
+                userName = getUserDisplayName(userInfo, ev.User)
         }</span>
 
         <span class="cov0" title="0">ts := parseSlackTimestamp(ev.TimeStamp)
@@ -1263,7 +1263,7 @@ func (a *SlackAdapter) batchGetUserInfo(ctx context.Context, userIDs []string) m
         return result</span>
 }
 
-func convertToChannel(conv slack.Channel) channel.Channel <span class="cov0" title="0">{
+func (a *SlackAdapter) convertToChannel(ctx context.Context, conv slack.Channel) channel.Channel <span class="cov0" title="0">{
         var channelType channel.Type
         if conv.IsIM </span><span class="cov0" title="0">{
                 channelType = channel.TypeDM
@@ -1273,13 +1273,45 @@ func convertToChannel(conv slack.Channel) channel.Channel <span class="cov0" tit
                 channelType = channel.TypePublic
         }</span>
 
+        <span class="cov0" title="0">name := conv.Name
+        if conv.IsIM &amp;&amp; conv.User != "" </span><span class="cov0" title="0">{
+                userInfo, err := withRetry(ctx, a.retryConfig, func() (*slack.User, error) </span><span class="cov0" title="0">{
+                        if cached, ok := a.userCache.Get(conv.User); ok </span><span class="cov0" title="0">{
+                                return cached, nil
+                        }</span>
+                        <span class="cov0" title="0">return a.client.GetUserInfoContext(ctx, conv.User)</span>
+                })
+                <span class="cov0" title="0">if err == nil &amp;&amp; userInfo != nil </span><span class="cov0" title="0">{
+                        a.userCache.Add(conv.User, userInfo)
+                        name = getUserDisplayName(userInfo, conv.User)
+                }</span>
+        }
+
         <span class="cov0" title="0">return channel.Channel{
                 ID:              conv.ID,
-                Name:            conv.Name,
+                Name:            name,
                 ChannelType:     channelType,
                 UnreadCount:     0,
                 LastMessageTime: time.Time{},
         }</span>
+}
+
+// getUserDisplayName returns the best display name for a user
+// Priority: DisplayName &gt; RealName &gt; Name &gt; UserID
+func getUserDisplayName(userInfo *slack.User, userID string) string <span class="cov0" title="0">{
+        if userInfo == nil </span><span class="cov0" title="0">{
+                return userID
+        }</span>
+        <span class="cov0" title="0">if userInfo.Profile.DisplayName != "" </span><span class="cov0" title="0">{
+                return userInfo.Profile.DisplayName
+        }</span>
+        <span class="cov0" title="0">if userInfo.RealName != "" </span><span class="cov0" title="0">{
+                return userInfo.RealName
+        }</span>
+        <span class="cov0" title="0">if userInfo.Name != "" </span><span class="cov0" title="0">{
+                return userInfo.Name
+        }</span>
+        <span class="cov0" title="0">return userID</span>
 }
 </pre>
 		
@@ -1288,12 +1320,14 @@ func convertToChannel(conv slack.Channel) channel.Channel <span class="cov0" tit
 import (
         "context"
         "fmt"
+        "strings"
 
         tea "github.com/charmbracelet/bubbletea"
         "github.com/charmbracelet/lipgloss"
 
         "github.com/yanosea/gosl/internal/app/port"
         "github.com/yanosea/gosl/internal/app/service"
+        "github.com/yanosea/gosl/internal/domain/channel"
         "github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
@@ -1339,6 +1373,7 @@ type AppModel struct {
         autoNavigated    bool
         isDarkBackground bool
         userColorService usercolor.Service
+        channelsLoaded   bool // Track if channels have been loaded
 
         splash       SplashModel
         channelList  ChannelListModel
@@ -1403,9 +1438,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov8" ti
                         m.splash.width = windowMsg.Width
                         m.splash.height = windowMsg.Height</span>
                 case StateChannelList:<span class="cov0" title="0">
-                        m.channelList.width = windowMsg.Width
-                        m.channelList.height = windowMsg.Height
-                        m.channelList.list.SetSize(windowMsg.Width, windowMsg.Height)</span>
+                        m.channelList, _ = m.channelList.Update(windowMsg)</span>
                 case StateMessageView:<span class="cov0" title="0">
                         m.messageView, _ = m.messageView.Update(windowMsg)</span>
                 case StateThreadView:<span class="cov0" title="0">
@@ -1425,20 +1458,26 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov8" ti
                 return m, nil</span>
 
         case SlackConnectedMsg:<span class="cov8" title="1">
-                if m.state == StateSplash </span><span class="cov8" title="1">{
+                if m.state == StateSplash &amp;&amp; !m.channelsLoaded </span><span class="cov8" title="1">{
                         return m, loadChannelsCmd(m.appService)
                 }</span>
                 <span class="cov0" title="0">return m, nil</span>
 
         case ChannelsLoadedMsg:<span class="cov8" title="1">
                 m.channelList.SetChannels(evt.Channels)
+                m.channelsLoaded = true
                 m.state = StateChannelList
+
+                // Update channel list with current window size
+                m.channelList, _ = m.channelList.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 
                 if !m.autoNavigated &amp;&amp; m.config != nil &amp;&amp; m.config.DefaultChannel != "" </span><span class="cov0" title="0">{
                         m.autoNavigated = true
                         for _, ch := range evt.Channels </span><span class="cov0" title="0">{
                                 if ch.Name == m.config.DefaultChannel </span><span class="cov0" title="0">{
                                         m.messageView = NewMessageViewModelWithColorService(ch.ID, m.width, m.height, m.appService, m.userColorService)
+                                        m.messageView.channelName = ch.Name
+                                        m.messageView.channelType = getChannelTypeString(ch.ChannelType)
                                         m.state = StateMessageView
                                         initCmd := m.messageView.Init()
                                         loadCmd := loadMessagesCmd(m.appService, ch.ID, 50, "")
@@ -1521,6 +1560,8 @@ func (m AppModel) updateChannelList(msg tea.Msg) (tea.Model, tea.Cmd) <span clas
                         selectedChannel := m.channelList.GetSelectedChannel()
                         if selectedChannel != nil </span><span class="cov0" title="0">{
                                 m.messageView = NewMessageViewModelWithColorService(selectedChannel.ID, m.width, m.height, m.appService, m.userColorService)
+                                m.messageView.channelName = selectedChannel.Name
+                                m.messageView.channelType = getChannelTypeString(selectedChannel.ChannelType)
                                 m.state = StateMessageView
                                 initCmd := m.messageView.Init()
                                 loadCmd := loadMessagesCmd(m.appService, selectedChannel.ID, 50, "")
@@ -1549,6 +1590,8 @@ func (m AppModel) updateMessageView(msg tea.Msg) (tea.Model, tea.Cmd) <span clas
                                         threadTS = selectedMsg.ID
                                 }</span>
                                 <span class="cov0" title="0">m.threadView = NewThreadViewModelWithColorService(m.messageView.channelID, threadTS, m.width, m.height, m.appService, m.userColorService)
+                                m.threadView.channelName = m.messageView.channelName
+                                m.threadView.channelType = m.messageView.channelType
                                 m.state = StateThreadView
                                 initCmd := m.threadView.Init()
                                 loadCmd := loadThreadCmd(m.appService, m.messageView.channelID, threadTS)
@@ -1653,7 +1696,16 @@ func (m AppModel) viewHelp() string <span class="cov0" title="0">{
 }</span>
 
 func (m AppModel) viewError() string <span class="cov0" title="0">{
-        return "Error: " + m.errorMessage + "\nPress Esc to return"
+        errorStyle := lipgloss.NewStyle().
+                Foreground(lipgloss.Color("1")).
+                Bold(true).
+                Padding(1, 2)
+
+        helpStyle := lipgloss.NewStyle().
+                Faint(true).
+                Padding(0, 2)
+
+        return errorStyle.Render("Error: "+m.errorMessage) + "\n\n" + helpStyle.Render("Press Esc to return to channel list")
 }</span>
 
 type ErrorMsg struct {
@@ -1674,8 +1726,13 @@ func loadMessagesCmd(appService *service.AppService, channelID string, limit int
         return func() tea.Msg </span><span class="cov0" title="0">{
                 messages, nextCursor, err := appService.GetMessages(context.Background(), channelID, limit, cursor)
                 if err != nil </span><span class="cov0" title="0">{
-                        return ErrorMsg{Err: fmt.Sprintf("Failed to load messages: %v", err)}
-                }</span>
+                        errMsg := fmt.Sprintf("Failed to load messages: %v", err)
+                        // Provide more helpful message for common errors
+                        if strings.Contains(err.Error(), "not_in_channel") </span><span class="cov0" title="0">{
+                                errMsg = "Cannot access this channel. The bot may not be a member of this private channel."
+                        }</span>
+                        <span class="cov0" title="0">return ErrorMsg{Err: errMsg}</span>
+                }
                 <span class="cov0" title="0">return MessagesLoadedMsg{
                         ChannelID:  channelID,
                         Messages:   messages,
@@ -1698,6 +1755,10 @@ func loadThreadCmd(appService *service.AppService, channelID, threadTS string) t
                 }</span>
         }
 }
+
+func getChannelTypeString(t channel.Type) string <span class="cov0" title="0">{
+        return strings.ToLower(t.String())
+}</span>
 </pre>
 		
 		<pre class="file" id="file5" style="display: none">package tui
@@ -1708,6 +1769,7 @@ import (
         "strings"
 
         "github.com/charmbracelet/bubbles/list"
+        "github.com/charmbracelet/bubbles/viewport"
         tea "github.com/charmbracelet/bubbletea"
         "github.com/charmbracelet/lipgloss"
 
@@ -1730,11 +1792,11 @@ func (i channelItem) Description() string <span class="cov8" title="1">{
         typeIcon := ""
         switch i.channel.ChannelType </span>{
         case channel.TypePublic:<span class="cov8" title="1">
-                typeIcon = "#"</span>
+                typeIcon = "📢"</span>
         case channel.TypePrivate:<span class="cov0" title="0">
                 typeIcon = "🔒"</span>
         case channel.TypeDM:<span class="cov8" title="1">
-                typeIcon = "@"</span>
+                typeIcon = "💬"</span>
         }
 
         <span class="cov8" title="1">unreadStr := ""
@@ -1752,6 +1814,7 @@ func (i channelItem) Description() string <span class="cov8" title="1">{
 
 type ChannelListModel struct {
         list        list.Model
+        viewport    viewport.Model
         channels    []channel.Channel
         searchMode  bool
         searchQuery string
@@ -1769,27 +1832,39 @@ func NewChannelListModel(width, height int) ChannelListModel <span class="cov8" 
                 Foreground(lipgloss.Color("243")).
                 BorderForeground(lipgloss.Color("170"))
 
-        l := list.New([]list.Item{}, delegate, width, height)
+        // Calculate viewport height: footer(2) = 2 lines reserved
+        // Search header is dynamic (added when searchMode is true)
+        reservedHeight := 2
+        viewportHeight := height - reservedHeight
+        if viewportHeight &lt; 5 </span><span class="cov0" title="0">{
+                viewportHeight = 5
+        }</span>
+
+        // List should be sized to viewport height for proper rendering
+        <span class="cov8" title="1">l := list.New([]list.Item{}, delegate, width, viewportHeight)
         l.Title = "Channels"
-        l.SetShowStatusBar(true)
+        l.SetShowStatusBar(false)
         l.SetFilteringEnabled(true)
+        l.SetShowPagination(false)
+        l.SetShowHelp(false)
+        l.InfiniteScrolling = true
         l.Styles.Title = lipgloss.NewStyle().
                 Foreground(lipgloss.Color("170")).
-                Bold(true).
-                MarginLeft(2)
-        l.Styles.PaginationStyle = lipgloss.NewStyle().
-                Foreground(lipgloss.Color("243"))
-        l.Styles.HelpStyle = lipgloss.NewStyle().
-                Foreground(lipgloss.Color("243"))
+                Bold(true)
+
+        vp := viewport.New(width, viewportHeight)
+        vp.YPosition = 0
+        vp.SetContent(l.View())
 
         return ChannelListModel{
                 list:       l,
+                viewport:   vp,
                 channels:   []channel.Channel{},
                 searchMode: false,
                 width:      width,
                 height:     height,
-        }
-}</span>
+        }</span>
+}
 
 func (m ChannelListModel) Init() tea.Cmd <span class="cov8" title="1">{
         return nil
@@ -1812,7 +1887,8 @@ func (m *ChannelListModel) updateListItems() <span class="cov8" title="1">{
                 items[i] = channelItem{channel: ch}
         }</span>
 
-        <span class="cov8" title="1">m.list.SetItems(items)</span>
+        <span class="cov8" title="1">m.list.SetItems(items)
+        m.viewport.SetContent(m.list.View())</span>
 }
 
 func (m ChannelListModel) filterChannels(query string) []channel.Channel <span class="cov8" title="1">{
@@ -1851,7 +1927,18 @@ func (m ChannelListModel) Update(msg tea.Msg) (ChannelListModel, tea.Cmd) <span 
         case tea.WindowSizeMsg:<span class="cov8" title="1">
                 m.width = msg.Width
                 m.height = msg.Height
-                m.list.SetSize(msg.Width, msg.Height)
+
+                // Calculate viewport height: footer(2) = 2 lines reserved
+                reservedHeight := 2
+                viewportHeight := msg.Height - reservedHeight
+                if viewportHeight &lt; 5 </span><span class="cov8" title="1">{
+                        viewportHeight = 5
+                }</span>
+
+                <span class="cov8" title="1">m.list.SetSize(msg.Width, viewportHeight)
+                m.viewport.Width = msg.Width
+                m.viewport.Height = viewportHeight
+                m.viewport.SetContent(m.list.View())
                 return m, nil</span>
 
         case tea.KeyMsg:<span class="cov8" title="1">
@@ -1902,26 +1989,65 @@ func (m ChannelListModel) Update(msg tea.Msg) (ChannelListModel, tea.Cmd) <span 
 
         <span class="cov8" title="1">var cmd tea.Cmd
         m.list, cmd = m.list.Update(msg)
+        m.viewport.SetContent(m.list.View())
         return m, cmd</span>
 }
 
 func (m ChannelListModel) View() string <span class="cov8" title="1">{
-        var s string
+        // If height is not set properly, just show content with footer
+        if m.height &lt;= 0 </span><span class="cov0" title="0">{
+                return m.viewport.View() + "\n" + lipgloss.NewStyle().Faint(true).Padding(0, 1).Render(
+                        "↑/k: Up | ↓/j: Down | g: Top | G: Bottom | /: Filter | Enter: Select | Esc: Back | q: Quit",
+                )
+        }</span>
 
+        <span class="cov8" title="1">var contentParts []string
+
+        // Search header if in search mode
         if m.searchMode </span><span class="cov8" title="1">{
                 searchStyle := lipgloss.NewStyle().
                         Foreground(lipgloss.Color("170")).
                         Bold(true)
-
-                s += searchStyle.Render("Search: /") + m.searchQuery
-                s += "\n"
-                s += lipgloss.NewStyle().Faint(true).Render("Type to filter, Enter to apply, Esc to cancel")
-                s += "\n\n"
+                searchHeader := searchStyle.Render("Search: /") + m.searchQuery
+                contentParts = append(contentParts, searchHeader)
         }</span>
 
-        <span class="cov8" title="1">s += m.list.View()
+        // Viewport content (includes list with title)
+        <span class="cov8" title="1">contentParts = append(contentParts, m.viewport.View())
 
-        return s</span>
+        // Join content parts
+        content := lipgloss.JoinVertical(lipgloss.Left, contentParts...)
+
+        // Footer: Help text
+        footerStyle := lipgloss.NewStyle().
+                Faint(true).
+                Padding(0, 1)
+
+        var footer string
+        if m.searchMode </span><span class="cov8" title="1">{
+                footer = "Type to filter | Enter: Apply | Esc: Cancel | q: Quit"
+        }</span> else<span class="cov8" title="1"> {
+                footer = "↑/k: Up | ↓/j: Down | g: Top | G: Bottom | /: Filter | Enter: Select | Esc: Back | q: Quit"
+        }</span>
+
+        // Calculate content height to position footer at bottom
+        <span class="cov8" title="1">contentHeight := lipgloss.Height(content)
+        footerRendered := footerStyle.Render(footer)
+        footerHeight := lipgloss.Height(footerRendered)
+
+        // Total height should be m.height
+        // We need: content + spacing + newline + footer = m.height lines total
+        totalUsed := contentHeight + 1 + footerHeight // content + newline before footer + footer
+        spacing := m.height - totalUsed
+
+        // Add spacing to push footer to bottom
+        if spacing &gt; 0 </span><span class="cov0" title="0">{
+                spacer := strings.Repeat("\n", spacing)
+                content = content + spacer
+        }</span>
+
+        // No trailing newline - the last line should be the footer itself
+        <span class="cov8" title="1">return content + "\n" + footerRendered</span>
 }
 
 func (m ChannelListModel) GetSelectedChannel() *channel.Channel <span class="cov8" title="1">{
@@ -2957,20 +3083,26 @@ type MessageViewModel struct {
         selectedIndex      int
         selectedMessageID  string
         channelID          string
+        channelName        string
+        channelType        string
         nextCursor         string
         width              int
         height             int
         renderCache        *RenderCache
         stringBuilders     *StringBuilderPool
-        messageLineHeights map[string]int // NEW: Line height cache for scroll position calculation
+        messageLineHeights map[string]int // Line height cache for scroll position calculation
         isInitialized      bool
         inputArea          textarea.Model
         inputFocused       bool
         sender             MessageSender
         isDarkBackground   bool
         userColorService   usercolor.Service
-        textWrapper        *textwrap.TextWrapper    // Text wrapping service
-        textWrapConfig     *port.TextWrapConfig     // Text wrapping configuration
+        textWrapper        *textwrap.TextWrapper // Text wrapping service
+        textWrapConfig     *port.TextWrapConfig  // Text wrapping configuration
+        // Cached styles to reduce lipgloss allocations
+        timestampStyle lipgloss.Style
+        threadStyle    lipgloss.Style
+        faintStyle     lipgloss.Style
 }
 
 func NewMessageViewModel(channelID string, width, height int) MessageViewModel <span class="cov8" title="1">{
@@ -3004,6 +3136,17 @@ func NewMessageViewModelWithColorService(channelID string, width, height int, se
         // Initialize text wrapper with default configuration (wrapping disabled until config is set)
         defaultConfig := port.DefaultTextWrapConfig()
 
+        // Pre-create cached styles to avoid repeated lipgloss allocations
+        timestampStyle := lipgloss.NewStyle().
+                Faint(true).
+                Foreground(lipgloss.Color("8"))
+
+        threadStyle := lipgloss.NewStyle().
+                Faint(true).
+                Foreground(lipgloss.Color("4"))
+
+        faintStyle := lipgloss.NewStyle().Faint(true)
+
         return MessageViewModel{
                 viewport:           vp,
                 messages:           []message.Message{},
@@ -3014,13 +3157,16 @@ func NewMessageViewModelWithColorService(channelID string, width, height int, se
                 height:             height,
                 renderCache:        NewRenderCache(),
                 stringBuilders:     NewStringBuilderPool(),
-                messageLineHeights: make(map[string]int), // Initialize line height cache
+                messageLineHeights: make(map[string]int),
                 inputArea:          ta,
                 inputFocused:       false,
                 sender:             sender,
                 userColorService:   colorService,
                 textWrapper:        textwrap.NewTextWrapper(),
                 textWrapConfig:     &amp;defaultConfig,
+                timestampStyle:     timestampStyle,
+                threadStyle:        threadStyle,
+                faintStyle:         faintStyle,
         }</span>
 }
 
@@ -3234,14 +3380,32 @@ func (m MessageViewModel) Update(msg tea.Msg) (MessageViewModel, tea.Cmd) <span 
 }
 
 func (m MessageViewModel) View() string <span class="cov8" title="1">{
-        var sb strings.Builder
+        sb := m.stringBuilders.Get()
+        defer m.stringBuilders.Put(sb)
 
-        // Header: Channel indicator
+        // Header: Channel indicator (create style once per view)
         headerStyle := lipgloss.NewStyle().
                 Bold(true).
                 Foreground(lipgloss.Color("2")).
                 Padding(0, 1)
-        sb.WriteString(headerStyle.Render(fmt.Sprintf("# %s", m.channelID)))
+
+        displayName := m.channelName
+        if displayName == "" </span><span class="cov8" title="1">{
+                displayName = m.channelID
+        }</span>
+
+        // Add emoji based on channel type
+        <span class="cov8" title="1">emoji := ""
+        switch m.channelType </span>{
+        case "public":<span class="cov0" title="0">
+                emoji = "📢 "</span>
+        case "private":<span class="cov0" title="0">
+                emoji = "🔒 "</span>
+        case "dm":<span class="cov0" title="0">
+                emoji = "💬 "</span>
+        }
+
+        <span class="cov8" title="1">sb.WriteString(headerStyle.Render(fmt.Sprintf("%s%s", emoji, displayName)))
         sb.WriteString("\n\n")
 
         // Viewport content
@@ -3249,29 +3413,25 @@ func (m MessageViewModel) View() string <span class="cov8" title="1">{
         sb.WriteString("\n")
 
         // Input area separator
-        separatorStyle := lipgloss.NewStyle().
-                Foreground(lipgloss.Color("8"))
         separator := strings.Repeat("─", m.width)
-        sb.WriteString(separatorStyle.Render(separator))
+        sb.WriteString(m.faintStyle.Foreground(lipgloss.Color("8")).Render(separator))
         sb.WriteString("\n")
 
         // Input area
-        inputBoxStyle := lipgloss.NewStyle().
+        borderColor := lipgloss.Color("6")
+        if m.inputFocused </span><span class="cov0" title="0">{
+                borderColor = lipgloss.Color("2")
+        }</span>
+        <span class="cov8" title="1">inputBoxStyle := lipgloss.NewStyle().
                 Border(lipgloss.RoundedBorder()).
-                BorderForeground(lipgloss.Color("6")).
+                BorderForeground(borderColor).
                 Padding(0, 1)
 
-        if m.inputFocused </span><span class="cov0" title="0">{
-                inputBoxStyle = inputBoxStyle.BorderForeground(lipgloss.Color("2"))
-        }</span>
-
-        <span class="cov8" title="1">sb.WriteString(inputBoxStyle.Render(m.inputArea.View()))
+        sb.WriteString(inputBoxStyle.Render(m.inputArea.View()))
         sb.WriteString("\n")
 
-        // Footer: Help text
-        footerStyle := lipgloss.NewStyle().
-                Faint(true).
-                Padding(0, 1)
+        // Footer: Help text (reuse faint style)
+        footerStyle := m.faintStyle.Padding(0, 1)
 
         var footer string
         if m.inputFocused </span><span class="cov0" title="0">{
@@ -3281,7 +3441,9 @@ func (m MessageViewModel) View() string <span class="cov8" title="1">{
         }</span>
         <span class="cov8" title="1">sb.WriteString(footerStyle.Render(footer))
 
-        return sb.String()</span>
+        result := sb.String()
+        sb.Reset()
+        return result</span>
 }
 
 func (m *MessageViewModel) SetMessages(messages []message.Message, cursor string) <span class="cov8" title="1">{
@@ -3387,17 +3549,35 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
         <span class="cov8" title="1">msgBuilder := m.stringBuilders.Get()
         defer m.stringBuilders.Put(msgBuilder)
 
+        // Apply user-specific background color to username if colorService is available
         userStyle := lipgloss.NewStyle().
-                Bold(true).
-                Foreground(lipgloss.Color("2"))
+                Bold(true)
 
-        timestampStyle := lipgloss.NewStyle().
-                Faint(true).
-                Foreground(lipgloss.Color("8"))
+        if m.userColorService != nil </span><span class="cov8" title="1">{
+                // Generate color from UserID
+                adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
 
-        threadStyle := lipgloss.NewStyle().
-                Faint(true).
-                Foreground(lipgloss.Color("4"))
+                // Select appropriate color based on terminal theme
+                var bgColor usercolor.Color
+                if m.isDarkBackground </span><span class="cov8" title="1">{
+                        bgColor = adaptiveColor.Dark
+                }</span> else<span class="cov8" title="1"> {
+                        bgColor = adaptiveColor.Light
+                }</span>
+
+                // Apply background color to username
+                <span class="cov8" title="1">userStyle = userStyle.
+                        Background(lipgloss.Color(bgColor.ToHex())).
+                        Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
+                        Padding(0, 1)</span>
+        } else<span class="cov8" title="1"> {
+                // No color service - use default green foreground
+                userStyle = userStyle.Foreground(lipgloss.Color("2"))
+        }</span>
+
+        // Use cached styles instead of creating new ones
+        <span class="cov8" title="1">timestampStyle := m.timestampStyle
+        threadStyle := m.threadStyle
 
         if selected </span><span class="cov8" title="1">{
                 msgBuilder.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render("&gt; "))
@@ -3412,44 +3592,17 @@ func (m *MessageViewModel) renderMessage(sb *strings.Builder, msg message.Messag
 
         highlightedText := m.highlightText(msg.Text)
 
-        // Apply text wrapping after highlighting, before styling
+        // Apply text wrapping after highlighting
         wrappedText := m.wrapText(highlightedText)
 
-        // Apply user-specific background color if colorService is available
-        var messageStyle lipgloss.Style
-        if m.userColorService != nil </span><span class="cov8" title="1">{
-                // Generate color from UserID
-                adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
-
-                // Select appropriate color based on terminal theme
-                var bgColor usercolor.Color
-                if m.isDarkBackground </span><span class="cov8" title="1">{
-                        bgColor = adaptiveColor.Dark
-                }</span> else<span class="cov8" title="1"> {
-                        bgColor = adaptiveColor.Light
-                }</span>
-
-                // Create style with background color and contrasting foreground
-                <span class="cov8" title="1">messageStyle = lipgloss.NewStyle().
-                        Background(lipgloss.Color(bgColor.ToHex())).
-                        Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
-                        Padding(0, 1)</span>
-        } else<span class="cov8" title="1"> {
-                // No color service - use default style
-                messageStyle = lipgloss.NewStyle()
-        }</span>
-
-        <span class="cov8" title="1">lines := strings.Split(wrappedText, "\n")
+        // Render message text without background color
+        lines := strings.Split(wrappedText, "\n")
         for i, line := range lines </span><span class="cov8" title="1">{
                 if i &gt; 0 </span><span class="cov8" title="1">{
                         msgBuilder.WriteString("\n")
                 }</span>
                 <span class="cov8" title="1">msgBuilder.WriteString(strings.Repeat(" ", messageTextIndent))
-                if m.userColorService != nil </span><span class="cov8" title="1">{
-                        msgBuilder.WriteString(messageStyle.Render(line))
-                }</span> else<span class="cov8" title="1"> {
-                        msgBuilder.WriteString(line)
-                }</span>
+                msgBuilder.WriteString(line)</span>
         }
 
         <span class="cov8" title="1">if msg.ReplyCount &gt; 0 </span><span class="cov8" title="1">{
@@ -4083,12 +4236,14 @@ type ThreadViewModel struct {
         selectedIndex      int
         selectedMessageID  string
         channelID          string
+        channelName        string
+        channelType        string
         threadTS           string
         width              int
         height             int
         viewportHeight     int
         scrollOffset       int
-        messageLineHeights map[string]int // NEW: Line height cache for scroll position calculation
+        messageLineHeights map[string]int // Line height cache for scroll position calculation
         inputArea          textarea.Model
         inputFocused       bool
         sender             MessageSender
@@ -4096,6 +4251,10 @@ type ThreadViewModel struct {
         userColorService   usercolor.Service
         textWrapper        *textwrap.TextWrapper // Text wrapping service
         textWrapConfig     *port.TextWrapConfig  // Text wrapping configuration
+        // Cached styles to reduce lipgloss allocations
+        timestampStyle lipgloss.Style
+        threadStyle    lipgloss.Style
+        faintStyle     lipgloss.Style
 }
 
 // NewThreadViewModel creates a new ThreadViewModel instance.
@@ -4136,6 +4295,17 @@ func NewThreadViewModelWithColorService(channelID, threadTS string, width, heigh
                 BreakAtCJKPunctuation: true,
         }
 
+        // Pre-create cached styles to avoid repeated lipgloss allocations
+        timestampStyle := lipgloss.NewStyle().
+                Faint(true).
+                Foreground(lipgloss.Color("8"))
+
+        threadStyle := lipgloss.NewStyle().
+                Faint(true).
+                Foreground(lipgloss.Color("4"))
+
+        faintStyle := lipgloss.NewStyle().Faint(true)
+
         return ThreadViewModel{
                 viewport:           vp,
                 parentMessage:      message.Message{},
@@ -4147,13 +4317,16 @@ func NewThreadViewModelWithColorService(channelID, threadTS string, width, heigh
                 height:             height,
                 viewportHeight:     viewportHeight,
                 scrollOffset:       0,
-                messageLineHeights: make(map[string]int), // Initialize line height cache
+                messageLineHeights: make(map[string]int),
                 inputArea:          ta,
                 inputFocused:       false,
                 sender:             sender,
                 userColorService:   colorService,
                 textWrapper:        textwrap.NewTextWrapper(),
                 textWrapConfig:     &amp;defaultConfig,
+                timestampStyle:     timestampStyle,
+                threadStyle:        threadStyle,
+                faintStyle:         faintStyle,
         }</span>
 }
 
@@ -4375,7 +4548,35 @@ func (m ThreadViewModel) View() string <span class="cov8" title="1">{
                 Bold(true).
                 Foreground(lipgloss.Color("2")).
                 Padding(0, 1)
-        sb.WriteString(headerStyle.Render(fmt.Sprintf("🧵 Thread in #%s", m.channelID)))
+
+        // Get parent message preview (first line of text)
+        threadPreview := ""
+        if m.parentMessage.Text != "" </span><span class="cov8" title="1">{
+                lines := strings.Split(m.parentMessage.Text, "\n")
+                threadPreview = lines[0]
+                // Truncate if too long
+                if len(threadPreview) &gt; 50 </span><span class="cov0" title="0">{
+                        threadPreview = threadPreview[:47] + "..."
+                }</span>
+        }
+
+        // Get channel display name with emoji
+        <span class="cov8" title="1">channelDisplay := m.channelID
+        if m.channelName != "" </span><span class="cov0" title="0">{
+                emoji := ""
+                switch m.channelType </span>{
+                case "public":<span class="cov0" title="0">
+                        emoji = "📢 "</span>
+                case "private":<span class="cov0" title="0">
+                        emoji = "🔒 "</span>
+                case "dm":<span class="cov0" title="0">
+                        emoji = "💬 "</span>
+                }
+                <span class="cov0" title="0">channelDisplay = emoji + m.channelName</span>
+        }
+
+        <span class="cov8" title="1">headerText := fmt.Sprintf("📝 %s in %s", threadPreview, channelDisplay)
+        sb.WriteString(headerStyle.Render(headerText))
         sb.WriteString("\n\n")
 
         // Render content directly without viewport
@@ -4605,13 +4806,34 @@ func (m *ThreadViewModel) scrollToSelected() <span class="cov8" title="1">{
 // indent specifies the number of spaces to indent (0 for parent, 2+ for replies).
 // index is the position in the thread (0 for parent, 1+ for replies).
 func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.Message, indent int, index int) <span class="cov8" title="1">{
-        // User name style
+        // Apply user-specific background color to username if colorService is available
         userStyle := lipgloss.NewStyle().
-                Bold(true).
-                Foreground(lipgloss.Color("2"))
+                Bold(true)
+
+        if m.userColorService != nil </span><span class="cov8" title="1">{
+                // Generate color from UserID
+                adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
+
+                // Select appropriate color based on terminal theme
+                var bgColor usercolor.Color
+                if m.isDarkBackground </span><span class="cov8" title="1">{
+                        bgColor = adaptiveColor.Dark
+                }</span> else<span class="cov8" title="1"> {
+                        bgColor = adaptiveColor.Light
+                }</span>
+
+                // Apply background color to username
+                <span class="cov8" title="1">userStyle = userStyle.
+                        Background(lipgloss.Color(bgColor.ToHex())).
+                        Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
+                        Padding(0, 1)</span>
+        } else<span class="cov8" title="1"> {
+                // No color service - use default green foreground
+                userStyle = userStyle.Foreground(lipgloss.Color("2"))
+        }</span>
 
         // Timestamp style
-        timestampStyle := lipgloss.NewStyle().
+        <span class="cov8" title="1">timestampStyle := lipgloss.NewStyle().
                 Faint(true).
                 Foreground(lipgloss.Color("8"))
 
@@ -4658,8 +4880,29 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
         // Calculate base indentation for message text
         baseIndent := "  " + strings.Repeat(" ", indent) + "   "
 
-        // Apply user-specific background color if colorService is available
-        var messageStyle lipgloss.Style
+        // Render message text without background color
+        textLines := strings.Split(wrappedText, "\n")
+        for i, line := range textLines </span><span class="cov8" title="1">{
+                if i &gt; 0 </span><span class="cov8" title="1">{
+                        sb.WriteString("\n")
+                }</span>
+                <span class="cov8" title="1">sb.WriteString(baseIndent)
+                sb.WriteString(line)</span>
+        }
+
+        <span class="cov8" title="1">sb.WriteString("\n")</span>
+}
+
+// renderThreadMessageLines renders a single message and returns it as a slice of lines.
+// indent specifies the number of spaces to indent (0 for parent, 2+ for replies).
+// index is the position in the thread (0 for parent, 1+ for replies).
+func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent int, index int) []string <span class="cov8" title="1">{
+        var lines []string
+
+        // Apply user-specific background color to username if colorService is available
+        userStyle := lipgloss.NewStyle().
+                Bold(true)
+
         if m.userColorService != nil </span><span class="cov8" title="1">{
                 // Generate color from UserID
                 adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
@@ -4672,45 +4915,18 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
                         bgColor = adaptiveColor.Light
                 }</span>
 
-                // Create style with background color and contrasting foreground
-                <span class="cov8" title="1">messageStyle = lipgloss.NewStyle().
+                // Apply background color to username
+                <span class="cov8" title="1">userStyle = userStyle.
                         Background(lipgloss.Color(bgColor.ToHex())).
                         Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
                         Padding(0, 1)</span>
         } else<span class="cov8" title="1"> {
-                // No color service - use default style
-                messageStyle = lipgloss.NewStyle()
+                // No color service - use default green foreground
+                userStyle = userStyle.Foreground(lipgloss.Color("2"))
         }</span>
 
-        // Handle multi-line messages by adding proper indentation to each line
-        <span class="cov8" title="1">textLines := strings.Split(wrappedText, "\n")
-        for i, line := range textLines </span><span class="cov8" title="1">{
-                if i &gt; 0 </span><span class="cov8" title="1">{
-                        sb.WriteString("\n")
-                }</span>
-                <span class="cov8" title="1">sb.WriteString(baseIndent)
-                if m.userColorService != nil </span><span class="cov8" title="1">{
-                        sb.WriteString(messageStyle.Render(line))
-                }</span> else<span class="cov8" title="1"> {
-                        sb.WriteString(line)
-                }</span>
-        }
-
-        <span class="cov8" title="1">sb.WriteString("\n")</span>
-}
-
-// renderThreadMessageLines renders a single message and returns it as a slice of lines.
-// indent specifies the number of spaces to indent (0 for parent, 2+ for replies).
-// index is the position in the thread (0 for parent, 1+ for replies).
-func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent int, index int) []string <span class="cov8" title="1">{
-        var lines []string
-        // User name style
-        userStyle := lipgloss.NewStyle().
-                Bold(true).
-                Foreground(lipgloss.Color("2"))
-
         // Timestamp style
-        timestampStyle := lipgloss.NewStyle().
+        <span class="cov8" title="1">timestampStyle := lipgloss.NewStyle().
                 Faint(true).
                 Foreground(lipgloss.Color("8"))
 
@@ -4762,39 +4978,11 @@ func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent i
         // Calculate base indentation for message text
         baseIndent := "  " + strings.Repeat(" ", indent) + "   "
 
-        // Apply user-specific background color if colorService is available
-        var messageStyle lipgloss.Style
-        if m.userColorService != nil </span><span class="cov8" title="1">{
-                // Generate color from UserID
-                adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
-
-                // Select appropriate color based on terminal theme
-                var bgColor usercolor.Color
-                if m.isDarkBackground </span><span class="cov8" title="1">{
-                        bgColor = adaptiveColor.Dark
-                }</span> else<span class="cov8" title="1"> {
-                        bgColor = adaptiveColor.Light
-                }</span>
-
-                // Create style with background color and contrasting foreground
-                <span class="cov8" title="1">messageStyle = lipgloss.NewStyle().
-                        Background(lipgloss.Color(bgColor.ToHex())).
-                        Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
-                        Padding(0, 1)</span>
-        } else<span class="cov8" title="1"> {
-                // No color service - use default style
-                messageStyle = lipgloss.NewStyle()
-        }</span>
-
-        // Handle multi-line messages by adding proper indentation to each line
-        <span class="cov8" title="1">textLines := strings.Split(wrappedText, "\n")
+        // Render message text without background color
+        textLines := strings.Split(wrappedText, "\n")
         for _, line := range textLines </span><span class="cov8" title="1">{
-                if m.userColorService != nil </span><span class="cov8" title="1">{
-                        lines = append(lines, baseIndent+messageStyle.Render(line))
-                }</span> else<span class="cov8" title="1"> {
-                        lines = append(lines, baseIndent+line)
-                }</span>
-        }
+                lines = append(lines, baseIndent+line)
+        }</span>
 
         // Add blank line after message
         <span class="cov8" title="1">lines = append(lines, "")

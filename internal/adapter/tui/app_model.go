@@ -3,12 +3,14 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/yanosea/gosl/internal/app/port"
 	"github.com/yanosea/gosl/internal/app/service"
+	"github.com/yanosea/gosl/internal/domain/channel"
 	"github.com/yanosea/gosl/internal/domain/usercolor"
 )
 
@@ -54,6 +56,7 @@ type AppModel struct {
 	autoNavigated    bool
 	isDarkBackground bool
 	userColorService usercolor.Service
+	channelsLoaded   bool // Track if channels have been loaded
 
 	splash       SplashModel
 	channelList  ChannelListModel
@@ -118,9 +121,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.splash.width = windowMsg.Width
 			m.splash.height = windowMsg.Height
 		case StateChannelList:
-			m.channelList.width = windowMsg.Width
-			m.channelList.height = windowMsg.Height
-			m.channelList.list.SetSize(windowMsg.Width, windowMsg.Height)
+			m.channelList, _ = m.channelList.Update(windowMsg)
 		case StateMessageView:
 			m.messageView, _ = m.messageView.Update(windowMsg)
 		case StateThreadView:
@@ -140,20 +141,26 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case SlackConnectedMsg:
-		if m.state == StateSplash {
+		if m.state == StateSplash && !m.channelsLoaded {
 			return m, loadChannelsCmd(m.appService)
 		}
 		return m, nil
 
 	case ChannelsLoadedMsg:
 		m.channelList.SetChannels(evt.Channels)
+		m.channelsLoaded = true
 		m.state = StateChannelList
+
+		// Update channel list with current window size
+		m.channelList, _ = m.channelList.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 
 		if !m.autoNavigated && m.config != nil && m.config.DefaultChannel != "" {
 			m.autoNavigated = true
 			for _, ch := range evt.Channels {
 				if ch.Name == m.config.DefaultChannel {
 					m.messageView = NewMessageViewModelWithColorService(ch.ID, m.width, m.height, m.appService, m.userColorService)
+					m.messageView.channelName = ch.Name
+					m.messageView.channelType = getChannelTypeString(ch.ChannelType)
 					m.state = StateMessageView
 					initCmd := m.messageView.Init()
 					loadCmd := loadMessagesCmd(m.appService, ch.ID, 50, "")
@@ -236,6 +243,8 @@ func (m AppModel) updateChannelList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			selectedChannel := m.channelList.GetSelectedChannel()
 			if selectedChannel != nil {
 				m.messageView = NewMessageViewModelWithColorService(selectedChannel.ID, m.width, m.height, m.appService, m.userColorService)
+				m.messageView.channelName = selectedChannel.Name
+				m.messageView.channelType = getChannelTypeString(selectedChannel.ChannelType)
 				m.state = StateMessageView
 				initCmd := m.messageView.Init()
 				loadCmd := loadMessagesCmd(m.appService, selectedChannel.ID, 50, "")
@@ -264,6 +273,8 @@ func (m AppModel) updateMessageView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					threadTS = selectedMsg.ID
 				}
 				m.threadView = NewThreadViewModelWithColorService(m.messageView.channelID, threadTS, m.width, m.height, m.appService, m.userColorService)
+				m.threadView.channelName = m.messageView.channelName
+				m.threadView.channelType = m.messageView.channelType
 				m.state = StateThreadView
 				initCmd := m.threadView.Init()
 				loadCmd := loadThreadCmd(m.appService, m.messageView.channelID, threadTS)
@@ -368,7 +379,16 @@ func (m AppModel) viewHelp() string {
 }
 
 func (m AppModel) viewError() string {
-	return "Error: " + m.errorMessage + "\nPress Esc to return"
+	errorStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("1")).
+		Bold(true).
+		Padding(1, 2)
+
+	helpStyle := lipgloss.NewStyle().
+		Faint(true).
+		Padding(0, 2)
+
+	return errorStyle.Render("Error: "+m.errorMessage) + "\n\n" + helpStyle.Render("Press Esc to return to channel list")
 }
 
 type ErrorMsg struct {
@@ -389,7 +409,12 @@ func loadMessagesCmd(appService *service.AppService, channelID string, limit int
 	return func() tea.Msg {
 		messages, nextCursor, err := appService.GetMessages(context.Background(), channelID, limit, cursor)
 		if err != nil {
-			return ErrorMsg{Err: fmt.Sprintf("Failed to load messages: %v", err)}
+			errMsg := fmt.Sprintf("Failed to load messages: %v", err)
+			// Provide more helpful message for common errors
+			if strings.Contains(err.Error(), "not_in_channel") {
+				errMsg = "Cannot access this channel. The bot may not be a member of this private channel."
+			}
+			return ErrorMsg{Err: errMsg}
 		}
 		return MessagesLoadedMsg{
 			ChannelID:  channelID,
@@ -412,4 +437,8 @@ func loadThreadCmd(appService *service.AppService, channelID, threadTS string) t
 			Replies:       replies,
 		}
 	}
+}
+
+func getChannelTypeString(t channel.Type) string {
+	return strings.ToLower(t.String())
 }

@@ -186,7 +186,7 @@ func (a *SlackAdapter) GetChannels(ctx context.Context) ([]channel.Channel, erro
 		}
 
 		for _, conv := range result.conversations {
-			ch := convertToChannel(conv)
+			ch := a.convertToChannel(ctx, conv)
 			allChannels = append(allChannels, ch)
 		}
 
@@ -244,7 +244,7 @@ func (a *SlackAdapter) GetMessages(ctx context.Context, channelID string, limit 
 		msg := history.Messages[i]
 		userName := msg.User
 		if userInfo, ok := userInfoMap[msg.User]; ok {
-			userName = userInfo.Name
+			userName = getUserDisplayName(userInfo, msg.User)
 		}
 
 		ts := parseSlackTimestamp(msg.Timestamp)
@@ -318,7 +318,7 @@ func (a *SlackAdapter) GetThreadReplies(ctx context.Context, channelID, threadTS
 	parentSlackMsg := msgs[0]
 	userName := parentSlackMsg.User
 	if userInfo, ok := userInfoMap[parentSlackMsg.User]; ok {
-		userName = userInfo.Name
+		userName = getUserDisplayName(userInfo, parentSlackMsg.User)
 	}
 
 	ts := parseSlackTimestamp(parentSlackMsg.Timestamp)
@@ -339,7 +339,7 @@ func (a *SlackAdapter) GetThreadReplies(ctx context.Context, channelID, threadTS
 		replyMsg := msgs[i]
 		replyUserName := replyMsg.User
 		if userInfo, ok := userInfoMap[replyMsg.User]; ok {
-			replyUserName = userInfo.Name
+			replyUserName = getUserDisplayName(userInfo, replyMsg.User)
 		}
 
 		replyTS := parseSlackTimestamp(replyMsg.Timestamp)
@@ -573,7 +573,7 @@ func (a *SlackAdapter) handleMessageEventV2(ev *slackevents.MessageEvent) {
 
 	userName := ev.User
 	if userInfo, err := a.getUserInfo(context.Background(), ev.User); err == nil {
-		userName = userInfo.Name
+		userName = getUserDisplayName(userInfo, ev.User)
 	}
 
 	ts := parseSlackTimestamp(ev.TimeStamp)
@@ -656,7 +656,7 @@ func (a *SlackAdapter) batchGetUserInfo(ctx context.Context, userIDs []string) m
 	return result
 }
 
-func convertToChannel(conv slack.Channel) channel.Channel {
+func (a *SlackAdapter) convertToChannel(ctx context.Context, conv slack.Channel) channel.Channel {
 	var channelType channel.Type
 	if conv.IsIM {
 		channelType = channel.TypeDM
@@ -666,11 +666,43 @@ func convertToChannel(conv slack.Channel) channel.Channel {
 		channelType = channel.TypePublic
 	}
 
+	name := conv.Name
+	if conv.IsIM && conv.User != "" {
+		userInfo, err := withRetry(ctx, a.retryConfig, func() (*slack.User, error) {
+			if cached, ok := a.userCache.Get(conv.User); ok {
+				return cached, nil
+			}
+			return a.client.GetUserInfoContext(ctx, conv.User)
+		})
+		if err == nil && userInfo != nil {
+			a.userCache.Add(conv.User, userInfo)
+			name = getUserDisplayName(userInfo, conv.User)
+		}
+	}
+
 	return channel.Channel{
 		ID:              conv.ID,
-		Name:            conv.Name,
+		Name:            name,
 		ChannelType:     channelType,
 		UnreadCount:     0,
 		LastMessageTime: time.Time{},
 	}
+}
+
+// getUserDisplayName returns the best display name for a user
+// Priority: DisplayName > RealName > Name > UserID
+func getUserDisplayName(userInfo *slack.User, userID string) string {
+	if userInfo == nil {
+		return userID
+	}
+	if userInfo.Profile.DisplayName != "" {
+		return userInfo.Profile.DisplayName
+	}
+	if userInfo.RealName != "" {
+		return userInfo.RealName
+	}
+	if userInfo.Name != "" {
+		return userInfo.Name
+	}
+	return userID
 }

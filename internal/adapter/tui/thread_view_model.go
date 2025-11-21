@@ -25,12 +25,14 @@ type ThreadViewModel struct {
 	selectedIndex      int
 	selectedMessageID  string
 	channelID          string
+	channelName        string
+	channelType        string
 	threadTS           string
 	width              int
 	height             int
 	viewportHeight     int
 	scrollOffset       int
-	messageLineHeights map[string]int // NEW: Line height cache for scroll position calculation
+	messageLineHeights map[string]int // Line height cache for scroll position calculation
 	inputArea          textarea.Model
 	inputFocused       bool
 	sender             MessageSender
@@ -38,6 +40,10 @@ type ThreadViewModel struct {
 	userColorService   usercolor.Service
 	textWrapper        *textwrap.TextWrapper // Text wrapping service
 	textWrapConfig     *port.TextWrapConfig  // Text wrapping configuration
+	// Cached styles to reduce lipgloss allocations
+	timestampStyle lipgloss.Style
+	threadStyle    lipgloss.Style
+	faintStyle     lipgloss.Style
 }
 
 // NewThreadViewModel creates a new ThreadViewModel instance.
@@ -78,6 +84,17 @@ func NewThreadViewModelWithColorService(channelID, threadTS string, width, heigh
 		BreakAtCJKPunctuation: true,
 	}
 
+	// Pre-create cached styles to avoid repeated lipgloss allocations
+	timestampStyle := lipgloss.NewStyle().
+		Faint(true).
+		Foreground(lipgloss.Color("8"))
+
+	threadStyle := lipgloss.NewStyle().
+		Faint(true).
+		Foreground(lipgloss.Color("4"))
+
+	faintStyle := lipgloss.NewStyle().Faint(true)
+
 	return ThreadViewModel{
 		viewport:           vp,
 		parentMessage:      message.Message{},
@@ -89,13 +106,16 @@ func NewThreadViewModelWithColorService(channelID, threadTS string, width, heigh
 		height:             height,
 		viewportHeight:     viewportHeight,
 		scrollOffset:       0,
-		messageLineHeights: make(map[string]int), // Initialize line height cache
+		messageLineHeights: make(map[string]int),
 		inputArea:          ta,
 		inputFocused:       false,
 		sender:             sender,
 		userColorService:   colorService,
 		textWrapper:        textwrap.NewTextWrapper(),
 		textWrapConfig:     &defaultConfig,
+		timestampStyle:     timestampStyle,
+		threadStyle:        threadStyle,
+		faintStyle:         faintStyle,
 	}
 }
 
@@ -317,7 +337,35 @@ func (m ThreadViewModel) View() string {
 		Bold(true).
 		Foreground(lipgloss.Color("2")).
 		Padding(0, 1)
-	sb.WriteString(headerStyle.Render(fmt.Sprintf("🧵 Thread in #%s", m.channelID)))
+
+	// Get parent message preview (first line of text)
+	threadPreview := ""
+	if m.parentMessage.Text != "" {
+		lines := strings.Split(m.parentMessage.Text, "\n")
+		threadPreview = lines[0]
+		// Truncate if too long
+		if len(threadPreview) > 50 {
+			threadPreview = threadPreview[:47] + "..."
+		}
+	}
+
+	// Get channel display name with emoji
+	channelDisplay := m.channelID
+	if m.channelName != "" {
+		emoji := ""
+		switch m.channelType {
+		case "public":
+			emoji = "📢 "
+		case "private":
+			emoji = "🔒 "
+		case "dm":
+			emoji = "💬 "
+		}
+		channelDisplay = emoji + m.channelName
+	}
+
+	headerText := fmt.Sprintf("📝 %s in %s", threadPreview, channelDisplay)
+	sb.WriteString(headerStyle.Render(headerText))
 	sb.WriteString("\n\n")
 
 	// Render content directly without viewport
@@ -547,10 +595,31 @@ func (m *ThreadViewModel) scrollToSelected() {
 // indent specifies the number of spaces to indent (0 for parent, 2+ for replies).
 // index is the position in the thread (0 for parent, 1+ for replies).
 func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.Message, indent int, index int) {
-	// User name style
+	// Apply user-specific background color to username if colorService is available
 	userStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("2"))
+		Bold(true)
+
+	if m.userColorService != nil {
+		// Generate color from UserID
+		adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
+
+		// Select appropriate color based on terminal theme
+		var bgColor usercolor.Color
+		if m.isDarkBackground {
+			bgColor = adaptiveColor.Dark
+		} else {
+			bgColor = adaptiveColor.Light
+		}
+
+		// Apply background color to username
+		userStyle = userStyle.
+			Background(lipgloss.Color(bgColor.ToHex())).
+			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
+			Padding(0, 1)
+	} else {
+		// No color service - use default green foreground
+		userStyle = userStyle.Foreground(lipgloss.Color("2"))
+	}
 
 	// Timestamp style
 	timestampStyle := lipgloss.NewStyle().
@@ -600,8 +669,29 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
 	// Calculate base indentation for message text
 	baseIndent := "  " + strings.Repeat(" ", indent) + "   "
 
-	// Apply user-specific background color if colorService is available
-	var messageStyle lipgloss.Style
+	// Render message text without background color
+	textLines := strings.Split(wrappedText, "\n")
+	for i, line := range textLines {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(baseIndent)
+		sb.WriteString(line)
+	}
+
+	sb.WriteString("\n")
+}
+
+// renderThreadMessageLines renders a single message and returns it as a slice of lines.
+// indent specifies the number of spaces to indent (0 for parent, 2+ for replies).
+// index is the position in the thread (0 for parent, 1+ for replies).
+func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent int, index int) []string {
+	var lines []string
+
+	// Apply user-specific background color to username if colorService is available
+	userStyle := lipgloss.NewStyle().
+		Bold(true)
+
 	if m.userColorService != nil {
 		// Generate color from UserID
 		adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
@@ -614,42 +704,15 @@ func (m *ThreadViewModel) renderThreadMessage(sb *strings.Builder, msg message.M
 			bgColor = adaptiveColor.Light
 		}
 
-		// Create style with background color and contrasting foreground
-		messageStyle = lipgloss.NewStyle().
+		// Apply background color to username
+		userStyle = userStyle.
 			Background(lipgloss.Color(bgColor.ToHex())).
 			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
 			Padding(0, 1)
 	} else {
-		// No color service - use default style
-		messageStyle = lipgloss.NewStyle()
+		// No color service - use default green foreground
+		userStyle = userStyle.Foreground(lipgloss.Color("2"))
 	}
-
-	// Handle multi-line messages by adding proper indentation to each line
-	textLines := strings.Split(wrappedText, "\n")
-	for i, line := range textLines {
-		if i > 0 {
-			sb.WriteString("\n")
-		}
-		sb.WriteString(baseIndent)
-		if m.userColorService != nil {
-			sb.WriteString(messageStyle.Render(line))
-		} else {
-			sb.WriteString(line)
-		}
-	}
-
-	sb.WriteString("\n")
-}
-
-// renderThreadMessageLines renders a single message and returns it as a slice of lines.
-// indent specifies the number of spaces to indent (0 for parent, 2+ for replies).
-// index is the position in the thread (0 for parent, 1+ for replies).
-func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent int, index int) []string {
-	var lines []string
-	// User name style
-	userStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("2"))
 
 	// Timestamp style
 	timestampStyle := lipgloss.NewStyle().
@@ -704,38 +767,10 @@ func (m *ThreadViewModel) renderThreadMessageLines(msg message.Message, indent i
 	// Calculate base indentation for message text
 	baseIndent := "  " + strings.Repeat(" ", indent) + "   "
 
-	// Apply user-specific background color if colorService is available
-	var messageStyle lipgloss.Style
-	if m.userColorService != nil {
-		// Generate color from UserID
-		adaptiveColor := m.userColorService.GenerateColorFromID(msg.UserID)
-
-		// Select appropriate color based on terminal theme
-		var bgColor usercolor.Color
-		if m.isDarkBackground {
-			bgColor = adaptiveColor.Dark
-		} else {
-			bgColor = adaptiveColor.Light
-		}
-
-		// Create style with background color and contrasting foreground
-		messageStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color(bgColor.ToHex())).
-			Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}).
-			Padding(0, 1)
-	} else {
-		// No color service - use default style
-		messageStyle = lipgloss.NewStyle()
-	}
-
-	// Handle multi-line messages by adding proper indentation to each line
+	// Render message text without background color
 	textLines := strings.Split(wrappedText, "\n")
 	for _, line := range textLines {
-		if m.userColorService != nil {
-			lines = append(lines, baseIndent+messageStyle.Render(line))
-		} else {
-			lines = append(lines, baseIndent+line)
-		}
+		lines = append(lines, baseIndent+line)
 	}
 
 	// Add blank line after message

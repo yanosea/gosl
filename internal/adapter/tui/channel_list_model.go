@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -28,11 +29,11 @@ func (i channelItem) Description() string {
 	typeIcon := ""
 	switch i.channel.ChannelType {
 	case channel.TypePublic:
-		typeIcon = "#"
+		typeIcon = "📢"
 	case channel.TypePrivate:
 		typeIcon = "🔒"
 	case channel.TypeDM:
-		typeIcon = "@"
+		typeIcon = "💬"
 	}
 
 	unreadStr := ""
@@ -50,6 +51,7 @@ func (i channelItem) Description() string {
 
 type ChannelListModel struct {
 	list        list.Model
+	viewport    viewport.Model
 	channels    []channel.Channel
 	searchMode  bool
 	searchQuery string
@@ -67,21 +69,33 @@ func NewChannelListModel(width, height int) ChannelListModel {
 		Foreground(lipgloss.Color("243")).
 		BorderForeground(lipgloss.Color("170"))
 
-	l := list.New([]list.Item{}, delegate, width, height)
+	// Calculate viewport height: footer(2) = 2 lines reserved
+	// Search header is dynamic (added when searchMode is true)
+	reservedHeight := 2
+	viewportHeight := height - reservedHeight
+	if viewportHeight < 5 {
+		viewportHeight = 5
+	}
+
+	// List should be sized to viewport height for proper rendering
+	l := list.New([]list.Item{}, delegate, width, viewportHeight)
 	l.Title = "Channels"
-	l.SetShowStatusBar(true)
+	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
+	l.SetShowPagination(false)
+	l.SetShowHelp(false)
+	l.InfiniteScrolling = true
 	l.Styles.Title = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("170")).
-		Bold(true).
-		MarginLeft(2)
-	l.Styles.PaginationStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("243"))
-	l.Styles.HelpStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("243"))
+		Bold(true)
+
+	vp := viewport.New(width, viewportHeight)
+	vp.YPosition = 0
+	vp.SetContent(l.View())
 
 	return ChannelListModel{
 		list:       l,
+		viewport:   vp,
 		channels:   []channel.Channel{},
 		searchMode: false,
 		width:      width,
@@ -111,6 +125,7 @@ func (m *ChannelListModel) updateListItems() {
 	}
 
 	m.list.SetItems(items)
+	m.viewport.SetContent(m.list.View())
 }
 
 func (m ChannelListModel) filterChannels(query string) []channel.Channel {
@@ -149,7 +164,18 @@ func (m ChannelListModel) Update(msg tea.Msg) (ChannelListModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.list.SetSize(msg.Width, msg.Height)
+
+		// Calculate viewport height: footer(2) = 2 lines reserved
+		reservedHeight := 2
+		viewportHeight := msg.Height - reservedHeight
+		if viewportHeight < 5 {
+			viewportHeight = 5
+		}
+
+		m.list.SetSize(msg.Width, viewportHeight)
+		m.viewport.Width = msg.Width
+		m.viewport.Height = viewportHeight
+		m.viewport.SetContent(m.list.View())
 		return m, nil
 
 	case tea.KeyMsg:
@@ -200,26 +226,65 @@ func (m ChannelListModel) Update(msg tea.Msg) (ChannelListModel, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
+	m.viewport.SetContent(m.list.View())
 	return m, cmd
 }
 
 func (m ChannelListModel) View() string {
-	var s string
+	// If height is not set properly, just show content with footer
+	if m.height <= 0 {
+		return m.viewport.View() + "\n" + lipgloss.NewStyle().Faint(true).Padding(0, 1).Render(
+			"↑/k: Up | ↓/j: Down | g: Top | G: Bottom | /: Filter | Enter: Select | Esc: Back | q: Quit",
+		)
+	}
 
+	var contentParts []string
+
+	// Search header if in search mode
 	if m.searchMode {
 		searchStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("170")).
 			Bold(true)
-
-		s += searchStyle.Render("Search: /") + m.searchQuery
-		s += "\n"
-		s += lipgloss.NewStyle().Faint(true).Render("Type to filter, Enter to apply, Esc to cancel")
-		s += "\n\n"
+		searchHeader := searchStyle.Render("Search: /") + m.searchQuery
+		contentParts = append(contentParts, searchHeader)
 	}
 
-	s += m.list.View()
+	// Viewport content (includes list with title)
+	contentParts = append(contentParts, m.viewport.View())
 
-	return s
+	// Join content parts
+	content := lipgloss.JoinVertical(lipgloss.Left, contentParts...)
+
+	// Footer: Help text
+	footerStyle := lipgloss.NewStyle().
+		Faint(true).
+		Padding(0, 1)
+
+	var footer string
+	if m.searchMode {
+		footer = "Type to filter | Enter: Apply | Esc: Cancel | q: Quit"
+	} else {
+		footer = "↑/k: Up | ↓/j: Down | g: Top | G: Bottom | /: Filter | Enter: Select | Esc: Back | q: Quit"
+	}
+
+	// Calculate content height to position footer at bottom
+	contentHeight := lipgloss.Height(content)
+	footerRendered := footerStyle.Render(footer)
+	footerHeight := lipgloss.Height(footerRendered)
+
+	// Total height should be m.height
+	// We need: content + spacing + newline + footer = m.height lines total
+	totalUsed := contentHeight + 1 + footerHeight // content + newline before footer + footer
+	spacing := m.height - totalUsed
+
+	// Add spacing to push footer to bottom
+	if spacing > 0 {
+		spacer := strings.Repeat("\n", spacing)
+		content = content + spacer
+	}
+
+	// No trailing newline - the last line should be the footer itself
+	return content + "\n" + footerRendered
 }
 
 func (m ChannelListModel) GetSelectedChannel() *channel.Channel {
